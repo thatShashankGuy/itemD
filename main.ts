@@ -1,36 +1,42 @@
-import { executeCommand } from "./src/shell.ts";
+import {
+  executeTool,
+  type ToolCall,
+} from "./src/tools.ts";
 
-async function main(): Promise<void>{
-  const process_1 = await executeCommand(
-    process.execPath,
-    ["-e", "console.log('testing from harness')"],
-      process.cwd()
-  )
-  const process_2 = await executeCommand(
-    process.execPath,
-    ["-e", "console.warn('testing from harness')"],
-      process.cwd()
-  )
-  const failed_process = await executeCommand(
-    process.execPath,
-    ["-e", "console.wrong('testing from harness')"],
-      process.cwd()
-  )
+async function main(): Promise<void> {
+  const calls: ToolCall[] = [
+    {
+      type: "list_file",
+      path: ".",
+    },
+    {
+      type: "read_file",
+      path: "package.json",
+    },
+    {
+      type: "write_file",
+      path: "phase-2-demo.txt",
+      content: "Written by the write_file tool.\n",
+    },
+    {
+      type: "shell",
+      executable: process.execPath,
+      args: ["-e", "console.log('Shell tool works')"],
+    },
+    {
+      type: "shell",
+      executable: process.execPath,
+      args: ["-e", "console.error('Expected failure'); process.exit(1)"],
+    },
+  ];
 
-  const seprate_cmd = await executeCommand(
-    "git",
-    ["--help"],
-    process.cwd()
-  )
-  console.log([
-    process_1,
-    process_2,
-    failed_process,
-    seprate_cmd
-  ]);
+  for (const call of calls) {
+    const result = await executeTool(call, process.cwd());
+    console.log(`\n${call.type}:`, result);
+  }
 }
 
 main().catch((error: unknown) => {
-  console.error("Could not start the command", error);
-  process.exitCode = -1;
-})
+  console.error("Unexpected harness failure:", error);
+  process.exitCode = 1;
+});
