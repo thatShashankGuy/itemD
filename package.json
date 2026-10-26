@@ -1,0 +1,11 @@
+{
+  "name": "code-harness",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.ts",
+  "scripts": {
+    "test": "node main.ts"
+  },
+  "keywords": [],
+  "type": "module"
+}
