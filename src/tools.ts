@@ -15,31 +15,157 @@ export type ToolCall =
     path: string;
     content: string;
   } | {
-    type: "list_file";
-    path:string
+    type: "list_files";
+    path?: string;
   } | {
     type: "shell";
     executable: string;
     args: string[];
   };
 
-export type ToolResult = {
-  ok: true;
-  output: string;
-} | {
-  ok: false;
-  error: string;
+export type ToolError = {
+  code:
+    | "INVALID_TOOL_CALL"
+    | "COMMAND_FAILED"
+    | "TOOL_EXECUTION_FAILED";
+  message: string;
 };
+
+export type ToolResult =
+  | {
+      ok: true;
+      output: string;
+    }
+  | {
+      ok: false;
+      error: ToolError;
+    };
+
+export type ToolCallValidationResult =
+  | { ok: true; value: ToolCall }
+  | {
+      ok: false;
+      error: ToolError & { code: "INVALID_TOOL_CALL" };
+    };
+
+export function validateToolCall(
+  input: unknown,
+): ToolCallValidationResult {
+  if (!isRecord(input)) {
+    return invalidToolCall("Tool call must be an object");
+  }
+
+  if (typeof input.type !== "string") {
+    return invalidToolCall("'type' must be a string");
+  }
+
+  switch (input.type) {
+    case "read_file":
+      if (typeof input.path !== "string") {
+        return invalidToolCall("'read_file.path' must be a string");
+      }
+
+      return {
+        ok: true,
+        value: { type: "read_file", path: input.path },
+      };
+
+    case "write_file":
+      if (
+        typeof input.path !== "string" ||
+        typeof input.content !== "string"
+      ) {
+        return invalidToolCall(
+          "'write_file.path' and 'write_file.content' must be strings",
+        );
+      }
+
+      return {
+        ok: true,
+        value: {
+          type: "write_file",
+          path: input.path,
+          content: input.content,
+        },
+      };
+
+    case "list_files":
+      if (
+        input.path !== undefined &&
+        typeof input.path !== "string"
+      ) {
+        return invalidToolCall(
+          "'list_files.path' must be a string when provided",
+        );
+      }
+
+      return {
+        ok: true,
+        value: {
+          type: "list_files",
+          ...(input.path === undefined ? {} : { path: input.path }),
+        },
+      };
+
+    case "shell":
+      if (
+        typeof input.executable !== "string" ||
+        !Array.isArray(input.args) ||
+        !input.args.every((argument) => typeof argument === "string")
+      ) {
+        return invalidToolCall(
+          "'shell.executable' must be a string and 'shell.args' must be an array of strings",
+        );
+      }
+
+      return {
+        ok: true,
+        value: {
+          type: "shell",
+          executable: input.executable,
+          args: input.args,
+        },
+      };
+
+    default:
+      return invalidToolCall(`Unknown tool type: ${input.type}`);
+  }
+}
+
+function isRecord(input: unknown): input is Record<string, unknown> {
+  return typeof input === "object" && input !== null;
+}
+
+function invalidToolCall(message: string): ToolCallValidationResult {
+  return {
+    ok: false,
+    error: {
+      code: "INVALID_TOOL_CALL",
+      message,
+    },
+  };
+}
 
 
 export async function executeTool(
-  call: ToolCall,
+  input: unknown,
   cwd: string,
 ): Promise<ToolResult> {
+  const validation = validateToolCall(input);
+
+  if (!validation.ok) {
+    return {
+      ok: false,
+      error: validation.error,
+    };
+  }
+
+  const call = validation.value;
+
   try {
     switch (call.type) {
-      case "list_file": {
-        const directoryPath = resolve(cwd, call.path);
+      case "list_files": {
+        const directoryPath = resolve(cwd, call.path ?? ".");
         const entries = await readdir(directoryPath, {
           withFileTypes: true,
         });
@@ -85,10 +211,13 @@ export async function executeTool(
         if (result.exitCode !== 0) {
           return {
             ok: false,
-            error:
-              result.stderr ||
-              result.stdout ||
-              `Command exited with code ${result.exitCode}`,
+            error: {
+              code: "COMMAND_FAILED",
+              message:
+                result.stderr ||
+                result.stdout ||
+                `Command exited with code ${result.exitCode}`,
+            },
           };
         }
 
@@ -101,13 +230,19 @@ export async function executeTool(
       default:
         return {
           ok: false,
-          error: "No valid tool",
+          error: {
+            code: "INVALID_TOOL_CALL",
+            message: "Unknown tool type",
+          },
         };
     }
   } catch (error: unknown) {
     return {
       ok: false,
-      error: getErrorMessage(error),
+      error: {
+        code: "TOOL_EXECUTION_FAILED",
+        message: getErrorMessage(error),
+      },
     };
   }
 }

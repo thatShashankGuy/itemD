@@ -4,8 +4,13 @@
   "description": "",
   "main": "main.ts",
   "scripts": {
-    "test": "node main.ts"
+    "demo": "node main.ts",
+    "model:test": "node --env-file=.env src/model-connectivity.ts",
+    "test": "node --test src/tools.test.ts"
   },
   "keywords": [],
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@google/genai": "^2.32.0"
+  }
 }

@@ -6,7 +6,7 @@ import {
 async function main(): Promise<void> {
   const calls: ToolCall[] = [
     {
-      type: "list_file",
+      type: "list_files",
       path: ".",
     },
     {
