@@ -4,9 +4,8 @@
   "description": "",
   "main": "main.ts",
   "scripts": {
-    "start": "node main.ts",
-    "check": "node --check main.ts",
-    "test": "node main.ts '{\"type\":\"read_file\",\"path\":\"package.json\"}'"
+    "start": "node --env-file=.env main.ts",
+    "check": "node --check main.ts"
   },
   "keywords": [],
   "type": "module",

@@ -50,7 +50,7 @@ The model proposes actions. Deterministic harness code validates and executes th
   - Add a deterministic shell-command policy.
   - Add command timeouts and output limits.
 
-- [ ] **Slice 4 — Gemini model call**
+- [x] **Slice 4 — Gemini model call**
   - Add the system prompt and message-history array.
   - Call Gemini with `fetch` and no SDK.
   - Parse text and function-call responses at the trust boundary.
@@ -75,28 +75,24 @@ The model proposes actions. Deterministic harness code validates and executes th
 
 ## Current slice
 
-Slice 3 is complete. The next checkpoint is Slice 4: connecting one Gemini model call through `fetch` while keeping model-specific response parsing separate from tool execution.
+Slice 4 is complete. The next checkpoint is Slice 5: connecting model tool requests to deterministic execution, returning structured tool results to the model, and repeating until `DONE:` or the maximum step limit.
 
-The ignored `current-slice.tmp` still contains the Slice 3 learning reference and will be overwritten when Slice 4 begins.
+The ignored `current-slice.tmp` contains the Slice 4 learning reference and will be overwritten when Slice 5 begins.
 
 ## Running the current harness
 
-Read a workspace file:
+Request one model action:
 
 ```bash
-node main.ts '{"type":"read_file","path":"package.json"}'
+npm start -- "Inspect package.json using read_file"
 ```
 
-Run an allowed command:
+At this checkpoint the model may return final text or one structured tool request. The requested tool is printed but is not executed until Slice 5.
+
+Check syntax without making a model request:
 
 ```bash
-node main.ts '{"type":"shell","executable":"git","args":["status","--short"]}'
-```
-
-Observe a policy denial:
-
-```bash
-node main.ts '{"type":"shell","executable":"git","args":["reset","--hard"]}'
+npm run check
 ```
 
 ## Non-goals for now

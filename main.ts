@@ -1,3 +1,5 @@
+// #region Imports
+
 import { spawn } from "node:child_process";
 import {
   readFile,
@@ -12,7 +14,9 @@ import {
   sep,
 } from "node:path";
 
-// Execution and input limits
+// #endregion
+
+// #region Harness configuration
 
 const COMMAND_TIMEOUT_MS = 30_000;
 const FORCE_KILL_DELAY_MS = 1_000;
@@ -22,7 +26,9 @@ const MAX_TOOL_ARGUMENTS = 100;
 const MAX_ARGUMENT_CHARS = 4_096;
 const MAX_EDIT_TEXT_CHARS = 200_000;
 
-// Command execution
+// #endregion
+
+// #region Command execution
 
 type CommandResult = {
   ok: boolean;
@@ -172,7 +178,9 @@ function executeCommand(
   });
 }
 
-// Tool contracts and validation
+// #endregion
+
+// #region Tool contracts and validation
 
 type ToolCall =
   | {
@@ -362,7 +370,9 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-// Workspace confinement
+// #endregion
+
+// #region Workspace confinement
 
 function isInsideWorkspace(root: string, target: string): boolean {
   const relativePath = relative(root, target);
@@ -494,7 +504,9 @@ async function checkRegularFile(
   }
 }
 
-// Shell policy
+// #endregion
+
+// #region Shell policy
 
 type PolicyResult =
   | { ok: true }
@@ -688,7 +700,9 @@ function validateShellPolicy(
   }
 }
 
-// Tool implementations
+// #endregion
+
+// #region Tool implementations and dispatcher
 
 async function executeReadFile(
   call: Extract<ToolCall, { type: "read_file" }>,
@@ -865,45 +879,418 @@ async function executeTool(
   }
 }
 
-// Temporary CLI boundary
+// #endregion
+
+// #region CLI
 
 async function main(): Promise<void> {
-  const rawInput = process.argv[2];
+  const task = process.argv.slice(2).join(" ").trim();
 
-  if (!rawInput) {
-    console.error("Usage: node main.ts '<tool-call-json>'");
-    process.exitCode = 1;
-    return;
-  }
-
-  let input: unknown;
-
-  try {
-    input = JSON.parse(rawInput);
-  } catch (error: unknown) {
+  if (task.length === 0) {
     console.error(
-      JSON.stringify(
-        {
-          ok: false,
-          error: {
-            code: "INVALID_JSON",
-            message: getErrorMessage(error),
-          },
-        },
-        null,
-        2,
-      ),
+      "Usage: npm start -- 'Describe the coding task'",
     );
     process.exitCode = 1;
     return;
   }
 
-  const workspaceRoot = await realpath(process.cwd());
-  const result = await executeTool(input, workspaceRoot);
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
+    console.error("GEMINI_API_KEY is missing from .env");
+    process.exitCode = 1;
+    return;
+  }
+
+  const model =
+    process.env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL;
+
+  const messages = createInitialMessages(task);
+
+  const result = await callGemini(
+    apiKey,
+    model,
+    messages,
+  );
+
+  if (result.ok) {
+    // Preserve the exact model content for the future loop.
+    messages.push(result.content);
+  }
 
   console.log(JSON.stringify(result, null, 2));
   process.exitCode = result.ok ? 0 : 1;
 }
+
+// #endregion
+
+// #region Model boundary
+
+const DEFAULT_GEMINI_MODEL = "gemini-3.6-flash";
+const MODEL_TIMEOUT_MS = 60_000;
+const MAX_MODEL_ERROR_CHARS = 4_000;
+
+const SYSTEM_PROMPT = `
+You are the reasoning component of a local coding harness.
+
+The harness, not you, executes tools. You may request at most one tool per turn.
+Use workspace-relative paths only.
+Use read_file before editing unfamiliar code.
+Use edit_file for one exact replacement.
+Use shell only for permitted inspection or test commands.
+If a tool fails, inspect the structured error and choose a recovery action.
+When the task is complete, respond with DONE: followed by a concise summary.
+Do not claim that a tool ran unless its result appears in the conversation.
+`.trim();
+
+type MessageRole = "user" | "model" | "function";
+type Message = {
+  role: MessageRole;
+  parts: unknown[];
+};
+type ModelAction =
+  | {
+      type: "tool_call";
+      id?: string;
+      name: string;
+      args: Record<string, unknown>;
+      call: unknown;
+    }
+  | {
+      type: "final";
+      text: string;
+    };
+
+type ModelError = {
+  code: "MODEL_REQUEST_FAILED" | "INVALID_MODEL_RESPONSE";
+  message: string;
+  status?: number;
+  details?: unknown;
+};
+
+type ModelCallResult =
+  | {
+      ok: true;
+      action: ModelAction;
+      content: Message;
+    }
+  | {
+      ok: false;
+      error: ModelError;
+    };
+
+function createInitialMessages(task: string): Message[] {
+  return [
+    {
+      role: "user",
+      parts: [{ text: task }],
+    },
+  ];
+}
+
+const GEMINI_TOOLS = [
+  {
+    functionDeclarations: [
+      {
+        name: "read_file",
+        description:
+          "Read a UTF-8 text file inside the current workspace.",
+        parameters: {
+          type: "object",
+          properties: {
+            path: {
+              type: "string",
+              description: "Workspace-relative file path.",
+            },
+          },
+          required: ["path"],
+        },
+      },
+      {
+        name: "edit_file",
+        description:
+          "Replace one exact, unique text occurrence in an existing workspace file.",
+        parameters: {
+          type: "object",
+          properties: {
+            path: {
+              type: "string",
+              description: "Workspace-relative file path.",
+            },
+            oldText: {
+              type: "string",
+              description:
+                "Exact text to replace. It must occur exactly once.",
+            },
+            newText: {
+              type: "string",
+              description: "Replacement text.",
+            },
+          },
+          required: ["path", "oldText", "newText"],
+        },
+      },
+      {
+        name: "shell",
+        description:
+          "Run one command allowed by the harness command policy.",
+        parameters: {
+          type: "object",
+          properties: {
+            executable: {
+              type: "string",
+              description:
+                "Executable name such as git, node, npm, rg, ls, or pwd.",
+            },
+            args: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "Arguments passed directly without shell interpolation.",
+            },
+          },
+          required: ["executable", "args"],
+        },
+      },
+    ],
+  },
+];
+
+function invalidModelResponse(message: string): ModelCallResult {
+  return {
+    ok: false,
+    error: {
+      code: "INVALID_MODEL_RESPONSE",
+      message,
+    },
+  };
+}
+
+function getFirstCandidateContent(
+  response: Record<string, unknown>,
+): unknown {
+  if (!Array.isArray(response.candidates)) {
+    return undefined;
+  }
+
+  const firstCandidate = response.candidates[0];
+
+  return isRecord(firstCandidate)
+    ? firstCandidate.content
+    : undefined;
+}
+
+function parseModelResponse(response: unknown): ModelCallResult {
+  if (!isRecord(response)) {
+    return invalidModelResponse("Model response must be an object");
+  }
+
+  const rawContent = getFirstCandidateContent(response);
+
+  if (!isRecord(rawContent) || !Array.isArray(rawContent.parts)) {
+    return invalidModelResponse(
+      "Model response has no candidate content parts",
+    );
+  }
+
+  const content: Message = {
+    role: "model",
+    parts: rawContent.parts,
+  };
+
+  const functionCalls: Array<{
+    id?: string;
+    name: string;
+    args: Record<string, unknown>;
+  }> = [];
+  const textParts: string[] = [];
+
+  for (const part of rawContent.parts) {
+    if (!isRecord(part)) {
+      continue;
+    }
+
+    if (typeof part.text === "string") {
+      textParts.push(part.text);
+    }
+
+    if (part.functionCall !== undefined) {
+      if (!isRecord(part.functionCall)) {
+        return invalidModelResponse(
+          "Function call must be an object",
+        );
+      }
+
+      const functionCall = part.functionCall;
+
+      if (typeof functionCall.name !== "string") {
+        return invalidModelResponse(
+          "Function call name must be a string",
+        );
+      }
+
+      if (
+        functionCall.args !== undefined &&
+        !isRecord(functionCall.args)
+      ) {
+        return invalidModelResponse(
+          "Function call arguments must be an object",
+        );
+      }
+
+      if (
+        functionCall.id !== undefined &&
+        typeof functionCall.id !== "string"
+      ) {
+        return invalidModelResponse(
+          "Function call id must be a string when provided",
+        );
+      }
+
+      functionCalls.push({
+        ...(functionCall.id === undefined
+          ? {}
+          : { id: functionCall.id }),
+        name: functionCall.name,
+        args: functionCall.args ?? {},
+      });
+    }
+  }
+
+  if (functionCalls.length > 1) {
+    return invalidModelResponse(
+      "Model requested more than one tool in a single turn",
+    );
+  }
+
+  if (functionCalls.length === 1) {
+    const functionCall = functionCalls[0];
+
+    if (!functionCall) {
+      return invalidModelResponse("Function call is missing");
+    }
+
+    return {
+      ok: true,
+      content,
+      action: {
+        type: "tool_call",
+        ...(functionCall.id === undefined
+          ? {}
+          : { id: functionCall.id }),
+        name: functionCall.name,
+        args: functionCall.args,
+        call: {
+          ...functionCall.args,
+          // Put type last so an argument cannot overwrite the tool name.
+          type: functionCall.name,
+        },
+      },
+    };
+  }
+
+  const text = textParts.join("").trim();
+
+  if (text.length === 0) {
+    return invalidModelResponse(
+      "Model response contains neither text nor a function call",
+    );
+  }
+
+  return {
+    ok: true,
+    content,
+    action: {
+      type: "final",
+      text,
+    },
+  };
+}
+
+async function callGemini(
+  apiKey: string,
+  model: string,
+  messages: Message[],
+): Promise<ModelCallResult> {
+  const endpoint =
+    `https://generativelanguage.googleapis.com/v1beta/models/` +
+    `${encodeURIComponent(model)}:generateContent`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, MODEL_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: SYSTEM_PROMPT }],
+        },
+        contents: messages,
+        tools: GEMINI_TOOLS,
+        toolConfig: {
+          functionCallingConfig: {
+            mode: "AUTO",
+          },
+        },
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+
+      return {
+        ok: false,
+        error: {
+          code: "MODEL_REQUEST_FAILED",
+          message: `Gemini request failed with HTTP ${response.status}`,
+          status: response.status,
+          details: errorBody.slice(0, MAX_MODEL_ERROR_CHARS),
+        },
+      };
+    }
+
+    let responseBody: unknown;
+
+    try {
+      responseBody = await response.json();
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        error: {
+          code: "INVALID_MODEL_RESPONSE",
+          message: `Gemini returned invalid JSON: ${getErrorMessage(error)}`,
+        },
+      };
+    }
+
+    return parseModelResponse(responseBody);
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      error: {
+        code: "MODEL_REQUEST_FAILED",
+        message:
+          error instanceof Error && error.name === "AbortError"
+            ? `Gemini request exceeded ${MODEL_TIMEOUT_MS}ms`
+            : getErrorMessage(error),
+      },
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// #endregion
+
+// #region Entrypoint
 
 await main().catch((error: unknown) => {
   console.error(
@@ -921,3 +1308,5 @@ await main().catch((error: unknown) => {
   );
   process.exitCode = 1;
 });
+
+// #endregion
