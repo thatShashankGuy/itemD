@@ -38,13 +38,13 @@ The model proposes actions. Deterministic harness code validates and executes th
   - Capture stdout, stderr, exit code, signal, duration, and cwd.
   - Return command and spawn failures as structured data.
 
-- [ ] **Slice 2 — Explicit tools**
+- [x] **Slice 2 — Explicit tools**
   - Define `read_file`, `edit_file`, and `shell` as typed data.
   - Validate untrusted input at runtime.
   - Dispatch each valid call through one function.
   - Return tool failures as structured results.
 
-- [ ] **Slice 3 — Safety and sanity**
+- [x] **Slice 3 — Safety and sanity**
   - Confine file operations to the workspace.
   - Reject traversal and symlink escapes.
   - Add a deterministic shell-command policy.
@@ -75,34 +75,28 @@ The model proposes actions. Deterministic harness code validates and executes th
 
 ## Current slice
 
-Slice 2 is ready to implement. Its complete working notes are stored locally in `current-slice.tmp`.
+Slice 3 is complete. The next checkpoint is Slice 4: connecting one Gemini model call through `fetch` while keeping model-specific response parsing separate from tool execution.
 
-Slice 2 is complete when:
+The ignored `current-slice.tmp` still contains the Slice 3 learning reference and will be overwritten when Slice 4 begins.
 
-- all three valid tool calls work;
-- malformed and unknown calls return structured errors;
-- missing files return structured failures;
-- non-zero commands return a structured `COMMAND_FAILED` result; and
-- no expected tool failure escapes as an exception.
+## Running the current harness
 
-## Running the current command-runner slice
-
-Successful command:
+Read a workspace file:
 
 ```bash
-node main.ts node --version
+node main.ts '{"type":"read_file","path":"package.json"}'
 ```
 
-Command that exits unsuccessfully:
+Run an allowed command:
 
 ```bash
-node main.ts node -e "console.error('failed'); process.exit(2)"
+node main.ts '{"type":"shell","executable":"git","args":["status","--short"]}'
 ```
 
-Executable that cannot be started:
+Observe a policy denial:
 
 ```bash
-node main.ts command-that-does-not-exist
+node main.ts '{"type":"shell","executable":"git","args":["reset","--hard"]}'
 ```
 
 ## Non-goals for now

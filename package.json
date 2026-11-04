@@ -5,7 +5,8 @@
   "main": "main.ts",
   "scripts": {
     "start": "node main.ts",
-    "test": "node --check main.ts"
+    "check": "node --check main.ts",
+    "test": "node main.ts '{\"type\":\"read_file\",\"path\":\"package.json\"}'"
   },
   "keywords": [],
   "type": "module",
