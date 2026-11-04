@@ -4,7 +4,8 @@
   "description": "",
   "main": "main.ts",
   "scripts": {
-    "test": "node main.ts"
+    "start": "node main.ts",
+    "test": "node --check main.ts"
   },
   "keywords": [],
   "type": "module",
