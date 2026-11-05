@@ -55,7 +55,7 @@ The model proposes actions. Deterministic harness code validates and executes th
   - Call Gemini with `fetch` and no SDK.
   - Parse text and function-call responses at the trust boundary.
 
-- [ ] **Slice 5 — Agent loop**
+- [x] **Slice 5 — Agent loop**
   - Repeatedly call the model, execute tools, and append observations.
   - Return tool failures to the model so it can recover.
   - Enforce a maximum step count.
@@ -75,19 +75,19 @@ The model proposes actions. Deterministic harness code validates and executes th
 
 ## Current slice
 
-Slice 4 is complete. The next checkpoint is Slice 5: connecting model tool requests to deterministic execution, returning structured tool results to the model, and repeating until `DONE:` or the maximum step limit.
+Slice 5 is complete. The next checkpoint is Slice 6: recording model calls, tool calls, results, durations, and errors as JSON Lines and replaying those traces for debugging.
 
-The ignored `current-slice.tmp` contains the Slice 4 learning reference and will be overwritten when Slice 5 begins.
+The ignored `current-slice.tmp` contains the Slice 5 learning reference and will be overwritten when Slice 6 begins.
 
 ## Running the current harness
 
-Request one model action:
+Run a multi-turn coding task:
 
 ```bash
-npm start -- "Inspect package.json using read_file"
+npm start -- "Read package.json and report the package name. Do not edit files."
 ```
 
-At this checkpoint the model may return final text or one structured tool request. The requested tool is printed but is not executed until Slice 5.
+The harness now executes validated tool requests, returns both successes and failures to the model, and repeats until the model responds with `DONE:` or reaches the twelve-step limit.
 
 Check syntax without making a model request:
 

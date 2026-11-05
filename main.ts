@@ -25,6 +25,8 @@ const MAX_FILE_BYTES = 200_000;
 const MAX_TOOL_ARGUMENTS = 100;
 const MAX_ARGUMENT_CHARS = 4_096;
 const MAX_EDIT_TEXT_CHARS = 200_000;
+const MAX_AGENT_STEPS = 12;
+const DONE_PREFIX = "DONE:";
 
 // #endregion
 
@@ -474,7 +476,7 @@ async function checkRegularFile(
         ok: false,
         error: {
           code: "FILE_NOT_REGULAR",
-          message: "Path is not a regular file",
+          message: "File is not regular",
         },
       };
     }
@@ -905,18 +907,14 @@ async function main(): Promise<void> {
   const model =
     process.env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL;
 
-  const messages = createInitialMessages(task);
+  const workspaceRoot = await realpath(process.cwd());
 
-  const result = await callGemini(
+  const result = await runAgent(
+    task,
     apiKey,
     model,
-    messages,
+    workspaceRoot,
   );
-
-  if (result.ok) {
-    // Preserve the exact model content for the future loop.
-    messages.push(result.content);
-  }
 
   console.log(JSON.stringify(result, null, 2));
   process.exitCode = result.ok ? 0 : 1;
@@ -943,7 +941,7 @@ When the task is complete, respond with DONE: followed by a concise summary.
 Do not claim that a tool ran unless its result appears in the conversation.
 `.trim();
 
-type MessageRole = "user" | "model" | "function";
+type MessageRole = "user" | "model";
 type Message = {
   role: MessageRole;
   parts: unknown[];
@@ -1286,6 +1284,147 @@ async function callGemini(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+// #endregion
+
+// #region Agent loop
+
+type AgentError =
+  | ModelError
+  | {
+      code: "MAX_STEPS_REACHED";
+      message: string;
+    };
+
+type AgentRunResult =
+  | {
+      ok: true;
+      status: "done";
+      answer: string;
+      steps: number;
+    }
+  | {
+      ok: false;
+      status: "failed" | "max_steps";
+      steps: number;
+      error: AgentError;
+    };
+
+function getDoneAnswer(text: string): string | undefined {
+  const trimmed = text.trim();
+
+  if (!trimmed.startsWith(DONE_PREFIX)) {
+    return undefined;
+  }
+
+  const answer = trimmed.slice(DONE_PREFIX.length).trim();
+
+  return answer.length > 0 ? answer : undefined;
+}
+
+function createFunctionResponseMessage(
+  action: Extract<ModelAction, { type: "tool_call" }>,
+  result: ToolResult,
+): Message {
+  const response = result.ok
+    ? { output: result.output }
+    : { error: result.error };
+
+  return {
+    role: "user",
+    parts: [
+      {
+        functionResponse: {
+          ...(action.id === undefined ? {} : { id: action.id }),
+          name: action.name,
+          response,
+        },
+      },
+    ],
+  };
+}
+
+function createContinueMessage(): Message {
+  return {
+    role: "user",
+    parts: [
+      {
+        text:
+          "Continue working. Request one tool if more work is needed. " +
+          "If the task is complete, reply with DONE: followed by a concise summary.",
+      },
+    ],
+  };
+}
+
+async function runAgent(
+  task: string,
+  apiKey: string,
+  model: string,
+  workspaceRoot: string,
+  maxSteps = MAX_AGENT_STEPS,
+): Promise<AgentRunResult> {
+  const messages = createInitialMessages(task);
+
+  for (let step = 1; step <= maxSteps; step += 1) {
+    const modelResult = await callGemini(
+      apiKey,
+      model,
+      messages,
+    );
+
+    if (!modelResult.ok) {
+      return {
+        ok: false,
+        status: "failed",
+        steps: step,
+        error: modelResult.error,
+      };
+    }
+
+    // Preserve the exact model content, including call IDs and signatures.
+    messages.push(modelResult.content);
+
+    if (modelResult.action.type === "final") {
+      const answer = getDoneAnswer(modelResult.action.text);
+
+      if (answer !== undefined) {
+        return {
+          ok: true,
+          status: "done",
+          answer,
+          steps: step,
+        };
+      }
+
+      messages.push(createContinueMessage());
+      continue;
+    }
+
+    const toolResult = await executeTool(
+      modelResult.action.call,
+      workspaceRoot,
+    );
+
+    // Tool failures are observations, so the model can choose a recovery action.
+    messages.push(
+      createFunctionResponseMessage(
+        modelResult.action,
+        toolResult,
+      ),
+    );
+  }
+
+  return {
+    ok: false,
+    status: "max_steps",
+    steps: maxSteps,
+    error: {
+      code: "MAX_STEPS_REACHED",
+      message: `Agent reached the ${maxSteps}-step limit`,
+    },
+  };
 }
 
 // #endregion
