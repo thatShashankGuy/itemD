@@ -9,7 +9,7 @@ The project is being written one learning slice at a time. Each slice should rem
 Build a single-file coding agent that can:
 
 1. Accept a natural-language coding task.
-2. Ask a Gemini model what to do next.
+2. Ask a DeepSeek model what to do next.
 3. Read files, edit files, and run shell commands.
 4. Return every tool result—including failures—to the model.
 5. Repeat until the model explicitly reports completion or a maximum step limit is reached.
@@ -50,9 +50,9 @@ The model proposes actions. Deterministic harness code validates and executes th
   - Add a deterministic shell-command policy.
   - Add command timeouts and output limits.
 
-- [x] **Slice 4 — Gemini model call**
+- [x] **Slice 4 — DeepSeek model call**
   - Add the system prompt and message-history array.
-  - Call Gemini with `fetch` and no SDK.
+  - Call DeepSeek with `fetch` and no SDK.
   - Parse text and function-call responses at the trust boundary.
 
 - [x] **Slice 5 — Agent loop**
@@ -61,7 +61,7 @@ The model proposes actions. Deterministic harness code validates and executes th
   - Enforce a maximum step count.
   - Stop on a clear done response.
 
-- [ ] **Slice 6 — Tracing and replay**
+- [x] **Slice 6 — Tracing and replay**
   - Log every model call, tool call, result, duration, and error.
   - Store traces as local JSON Lines files.
   - Add a simple replay command for debugging.
@@ -71,13 +71,13 @@ The model proposes actions. Deterministic harness code validates and executes th
 - `main.ts` — the single implementation file.
 - `README.md` — project goals, constraints, and progress.
 - `current-slice.tmp` — ignored learning notes for the active slice. It is overwritten when moving to the next slice.
-- `.env` — ignored local configuration such as `GEMINI_API_KEY`.
+- `.env` — ignored local configuration such as `DEEPSEEK_API_KEY`.
 
 ## Current slice
 
-Slice 5 is complete. The next checkpoint is Slice 6: recording model calls, tool calls, results, durations, and errors as JSON Lines and replaying those traces for debugging.
+Slice 6 is complete. Agent runs now record model calls, tool calls, results, durations, errors, and final status as replayable JSON Lines traces.
 
-The ignored `current-slice.tmp` contains the Slice 5 learning reference and will be overwritten when Slice 6 begins.
+The ignored `current-slice.tmp` retains the Slice 6 learning reference and will be overwritten when the next slice begins.
 
 ## Running the current harness
 
@@ -87,7 +87,15 @@ Run a multi-turn coding task:
 npm start -- "Read package.json and report the package name. Do not edit files."
 ```
 
-The harness now executes validated tool requests, returns both successes and failures to the model, and repeats until the model responds with `DONE:` or reaches the twelve-step limit.
+The harness now executes validated tool requests, returns both successes and failures to the model, and repeats until the model responds with `DONE:` or reaches the 50-step limit.
+
+Each run returns a trace ID. Replay it without making a model request or executing tools:
+
+```bash
+npm start -- --replay <trace-id>
+```
+
+Raw JSONL traces are stored under `.harness/traces/` and are excluded from Git.
 
 Check syntax without making a model request:
 

@@ -1,3 +1,4 @@
 .env
 .zed/
 current-slice.tmp
+.harness/

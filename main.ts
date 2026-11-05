@@ -1,7 +1,10 @@
 // #region Imports
 
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
+  appendFile,
+  mkdir,
   readFile,
   realpath,
   stat,
@@ -9,6 +12,7 @@ import {
 } from "node:fs/promises";
 import {
   isAbsolute,
+  join,
   relative,
   resolve,
   sep,
@@ -25,8 +29,11 @@ const MAX_FILE_BYTES = 200_000;
 const MAX_TOOL_ARGUMENTS = 100;
 const MAX_ARGUMENT_CHARS = 4_096;
 const MAX_EDIT_TEXT_CHARS = 200_000;
-const MAX_AGENT_STEPS = 12;
+const MAX_AGENT_STEPS = 50;
 const DONE_PREFIX = "DONE:";
+const TRACE_DIRECTORY = ".harness/traces";
+const TRACE_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 // #endregion
 
@@ -886,7 +893,22 @@ async function executeTool(
 // #region CLI
 
 async function main(): Promise<void> {
-  const task = process.argv.slice(2).join(" ").trim();
+  const workspaceRoot = await realpath(process.cwd());
+  const cliArgs = process.argv.slice(2);
+
+  if (cliArgs[0] === "--replay") {
+    const traceId = cliArgs.length === 2 ? cliArgs[1] : "";
+    const result = await replayTrace(
+      workspaceRoot,
+      traceId ?? "",
+    );
+
+    console.log(JSON.stringify(result, null, 2));
+    process.exitCode = result.ok ? 0 : 1;
+    return;
+  }
+
+  const task = cliArgs.join(" ").trim();
 
   if (task.length === 0) {
     console.error(
@@ -896,18 +918,16 @@ async function main(): Promise<void> {
     return;
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.DEEPSEEK_API_KEY;
 
   if (!apiKey) {
-    console.error("GEMINI_API_KEY is missing from .env");
+    console.error("DEEPSEEK_API_KEY is missing from .env");
     process.exitCode = 1;
     return;
   }
 
   const model =
-    process.env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL;
-
-  const workspaceRoot = await realpath(process.cwd());
+    process.env.DEEPSEEK_MODEL ?? DEFAULT_DEEPSEEK_MODEL;
 
   const result = await runAgent(
     task,
@@ -924,14 +944,14 @@ async function main(): Promise<void> {
 
 // #region Model boundary
 
-const DEFAULT_GEMINI_MODEL = "gemini-3.6-flash";
+const DEFAULT_DEEPSEEK_MODEL = "deepseek-flash";
 const MODEL_TIMEOUT_MS = 60_000;
 const MAX_MODEL_ERROR_CHARS = 4_000;
 
 const SYSTEM_PROMPT = `
 You are the reasoning component of a local coding harness.
 
-The harness, not you, executes tools. You may request at most one tool per turn.
+The harness, not you, executes tools. You may request multiple tools in one turn.
 Use workspace-relative paths only.
 Use read_file before editing unfamiliar code.
 Use edit_file for one exact replacement.
@@ -941,18 +961,43 @@ When the task is complete, respond with DONE: followed by a concise summary.
 Do not claim that a tool ran unless its result appears in the conversation.
 `.trim();
 
-type MessageRole = "user" | "model";
-type Message = {
-  role: MessageRole;
-  parts: unknown[];
+type DeepSeekToolCall = {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
 };
+
+type Message =
+  | {
+      role: "user";
+      content: string;
+    }
+  | {
+      role: "assistant";
+      content: string | null;
+      reasoning_content?: string | null;
+      tool_calls?: DeepSeekToolCall[];
+    }
+  | {
+      role: "tool";
+      tool_call_id: string;
+      content: string;
+    };
+
+type ToolAction = {
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
+  call: unknown;
+};
+
 type ModelAction =
   | {
-      type: "tool_call";
-      id?: string;
-      name: string;
-      args: Record<string, unknown>;
-      call: unknown;
+      type: "tool_calls";
+      calls: ToolAction[];
     }
   | {
       type: "final";
@@ -981,78 +1026,83 @@ function createInitialMessages(task: string): Message[] {
   return [
     {
       role: "user",
-      parts: [{ text: task }],
+      content: task,
     },
   ];
 }
 
-const GEMINI_TOOLS = [
+const DEEPSEEK_TOOLS = [
   {
-    functionDeclarations: [
-      {
-        name: "read_file",
-        description:
-          "Read a UTF-8 text file inside the current workspace.",
-        parameters: {
-          type: "object",
-          properties: {
-            path: {
-              type: "string",
-              description: "Workspace-relative file path.",
-            },
+    type: "function",
+    function: {
+      name: "read_file",
+      description:
+        "Read a UTF-8 text file inside the current workspace.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description: "Workspace-relative file path.",
           },
-          required: ["path"],
         },
+        required: ["path"],
       },
-      {
-        name: "edit_file",
-        description:
-          "Replace one exact, unique text occurrence in an existing workspace file.",
-        parameters: {
-          type: "object",
-          properties: {
-            path: {
-              type: "string",
-              description: "Workspace-relative file path.",
-            },
-            oldText: {
-              type: "string",
-              description:
-                "Exact text to replace. It must occur exactly once.",
-            },
-            newText: {
-              type: "string",
-              description: "Replacement text.",
-            },
-          },
-          required: ["path", "oldText", "newText"],
-        },
-      },
-      {
-        name: "shell",
-        description:
-          "Run one command allowed by the harness command policy.",
-        parameters: {
-          type: "object",
-          properties: {
-            executable: {
-              type: "string",
-              description:
-                "Executable name such as git, node, npm, rg, ls, or pwd.",
-            },
-            args: {
-              type: "array",
-              items: { type: "string" },
-              description:
-                "Arguments passed directly without shell interpolation.",
-            },
-          },
-          required: ["executable", "args"],
-        },
-      },
-    ],
+    },
   },
-];
+  {
+    type: "function",
+    function: {
+      name: "edit_file",
+      description:
+        "Replace one exact, unique text occurrence in an existing workspace file.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description: "Workspace-relative file path.",
+          },
+          oldText: {
+            type: "string",
+            description:
+              "Exact text to replace. It must occur exactly once.",
+          },
+          newText: {
+            type: "string",
+            description: "Replacement text.",
+          },
+        },
+        required: ["path", "oldText", "newText"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "shell",
+      description:
+        "Run one command allowed by the harness command policy.",
+      parameters: {
+        type: "object",
+        properties: {
+          executable: {
+            type: "string",
+            description:
+              "Executable name such as git, node, npm, rg, ls, or pwd.",
+          },
+          args: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Arguments passed directly without shell interpolation.",
+          },
+        },
+        required: ["executable", "args"],
+      },
+    },
+  },
+] as const;
 
 function invalidModelResponse(message: string): ModelCallResult {
   return {
@@ -1064,17 +1114,17 @@ function invalidModelResponse(message: string): ModelCallResult {
   };
 }
 
-function getFirstCandidateContent(
+function getFirstChoiceMessage(
   response: Record<string, unknown>,
 ): unknown {
-  if (!Array.isArray(response.candidates)) {
+  if (!Array.isArray(response.choices)) {
     return undefined;
   }
 
-  const firstCandidate = response.candidates[0];
+  const firstChoice = response.choices[0];
 
-  return isRecord(firstCandidate)
-    ? firstCandidate.content
+  return isRecord(firstChoice)
+    ? firstChoice.message
     : undefined;
 }
 
@@ -1083,111 +1133,139 @@ function parseModelResponse(response: unknown): ModelCallResult {
     return invalidModelResponse("Model response must be an object");
   }
 
-  const rawContent = getFirstCandidateContent(response);
+  const rawMessage = getFirstChoiceMessage(response);
 
-  if (!isRecord(rawContent) || !Array.isArray(rawContent.parts)) {
+  if (!isRecord(rawMessage)) {
     return invalidModelResponse(
-      "Model response has no candidate content parts",
+      "Model response has no first choice message",
     );
+  }
+
+  if (rawMessage.role !== "assistant") {
+    return invalidModelResponse(
+      "Model choice message role must be assistant",
+    );
+  }
+
+  if (
+    rawMessage.content !== null &&
+    typeof rawMessage.content !== "string"
+  ) {
+    return invalidModelResponse(
+      "Assistant content must be a string or null",
+    );
+  }
+
+  if (
+    rawMessage.reasoning_content !== undefined &&
+    rawMessage.reasoning_content !== null &&
+    typeof rawMessage.reasoning_content !== "string"
+  ) {
+    return invalidModelResponse(
+      "Assistant reasoning content must be a string or null",
+    );
+  }
+
+  const rawToolCalls = rawMessage.tool_calls;
+
+  if (
+    rawToolCalls !== undefined &&
+    !Array.isArray(rawToolCalls)
+  ) {
+    return invalidModelResponse(
+      "Assistant tool calls must be an array",
+    );
+  }
+
+  const toolCalls: DeepSeekToolCall[] = [];
+  const toolActions: ToolAction[] = [];
+  const toolCallIds = new Set<string>();
+
+  for (const rawToolCall of rawToolCalls ?? []) {
+    if (
+      !isRecord(rawToolCall) ||
+      typeof rawToolCall.id !== "string" ||
+      rawToolCall.id.length === 0 ||
+      rawToolCall.type !== "function" ||
+      !isRecord(rawToolCall.function) ||
+      typeof rawToolCall.function.name !== "string" ||
+      typeof rawToolCall.function.arguments !== "string"
+    ) {
+      return invalidModelResponse(
+        "Tool call must contain an id, function name, and JSON arguments",
+      );
+    }
+
+    if (toolCallIds.has(rawToolCall.id)) {
+      return invalidModelResponse(
+        "Tool call IDs must be unique within a model turn",
+      );
+    }
+
+    toolCallIds.add(rawToolCall.id);
+
+    let parsedArguments: unknown;
+
+    try {
+      parsedArguments = JSON.parse(
+        rawToolCall.function.arguments,
+      ) as unknown;
+    } catch (error: unknown) {
+      return invalidModelResponse(
+        `Tool arguments are not valid JSON: ${getErrorMessage(error)}`,
+      );
+    }
+
+    if (!isRecord(parsedArguments)) {
+      return invalidModelResponse(
+        "Tool arguments must decode to an object",
+      );
+    }
+
+    const toolCall: DeepSeekToolCall = {
+      id: rawToolCall.id,
+      type: "function",
+      function: {
+        name: rawToolCall.function.name,
+        arguments: rawToolCall.function.arguments,
+      },
+    };
+    toolCalls.push(toolCall);
+    toolActions.push({
+      id: toolCall.id,
+      name: toolCall.function.name,
+      args: parsedArguments,
+      call: {
+        ...parsedArguments,
+        // Put type last so an argument cannot overwrite the tool name.
+        type: toolCall.function.name,
+      },
+    });
   }
 
   const content: Message = {
-    role: "model",
-    parts: rawContent.parts,
+    role: "assistant",
+    content: rawMessage.content,
+    ...(rawMessage.reasoning_content === undefined
+      ? {}
+      : { reasoning_content: rawMessage.reasoning_content }),
+    ...(rawToolCalls === undefined
+      ? {}
+      : { tool_calls: toolCalls }),
   };
 
-  const functionCalls: Array<{
-    id?: string;
-    name: string;
-    args: Record<string, unknown>;
-  }> = [];
-  const textParts: string[] = [];
-
-  for (const part of rawContent.parts) {
-    if (!isRecord(part)) {
-      continue;
-    }
-
-    if (typeof part.text === "string") {
-      textParts.push(part.text);
-    }
-
-    if (part.functionCall !== undefined) {
-      if (!isRecord(part.functionCall)) {
-        return invalidModelResponse(
-          "Function call must be an object",
-        );
-      }
-
-      const functionCall = part.functionCall;
-
-      if (typeof functionCall.name !== "string") {
-        return invalidModelResponse(
-          "Function call name must be a string",
-        );
-      }
-
-      if (
-        functionCall.args !== undefined &&
-        !isRecord(functionCall.args)
-      ) {
-        return invalidModelResponse(
-          "Function call arguments must be an object",
-        );
-      }
-
-      if (
-        functionCall.id !== undefined &&
-        typeof functionCall.id !== "string"
-      ) {
-        return invalidModelResponse(
-          "Function call id must be a string when provided",
-        );
-      }
-
-      functionCalls.push({
-        ...(functionCall.id === undefined
-          ? {}
-          : { id: functionCall.id }),
-        name: functionCall.name,
-        args: functionCall.args ?? {},
-      });
-    }
-  }
-
-  if (functionCalls.length > 1) {
-    return invalidModelResponse(
-      "Model requested more than one tool in a single turn",
-    );
-  }
-
-  if (functionCalls.length === 1) {
-    const functionCall = functionCalls[0];
-
-    if (!functionCall) {
-      return invalidModelResponse("Function call is missing");
-    }
-
+  if (toolActions.length > 0) {
     return {
       ok: true,
       content,
       action: {
-        type: "tool_call",
-        ...(functionCall.id === undefined
-          ? {}
-          : { id: functionCall.id }),
-        name: functionCall.name,
-        args: functionCall.args,
-        call: {
-          ...functionCall.args,
-          // Put type last so an argument cannot overwrite the tool name.
-          type: functionCall.name,
-        },
+        type: "tool_calls",
+        calls: toolActions,
       },
     };
   }
 
-  const text = textParts.join("").trim();
+  const text = rawMessage.content?.trim() ?? "";
 
   if (text.length === 0) {
     return invalidModelResponse(
@@ -1205,14 +1283,12 @@ function parseModelResponse(response: unknown): ModelCallResult {
   };
 }
 
-async function callGemini(
+async function callDeepSeek(
   apiKey: string,
   model: string,
   messages: Message[],
 ): Promise<ModelCallResult> {
-  const endpoint =
-    `https://generativelanguage.googleapis.com/v1beta/models/` +
-    `${encodeURIComponent(model)}:generateContent`;
+  const endpoint = "https://api.deepseek.com/chat/completions";
 
   const controller = new AbortController();
   const timeout = setTimeout(() => {
@@ -1224,19 +1300,16 @@ async function callGemini(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-goog-api-key": apiKey,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: SYSTEM_PROMPT }],
-        },
-        contents: messages,
-        tools: GEMINI_TOOLS,
-        toolConfig: {
-          functionCallingConfig: {
-            mode: "AUTO",
-          },
-        },
+        model,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          ...messages,
+        ],
+        tools: DEEPSEEK_TOOLS,
+        thinking: { type: "enabled" },
       }),
       signal: controller.signal,
     });
@@ -1248,7 +1321,7 @@ async function callGemini(
         ok: false,
         error: {
           code: "MODEL_REQUEST_FAILED",
-          message: `Gemini request failed with HTTP ${response.status}`,
+          message: `DeepSeek request failed with HTTP ${response.status}`,
           status: response.status,
           details: errorBody.slice(0, MAX_MODEL_ERROR_CHARS),
         },
@@ -1264,7 +1337,7 @@ async function callGemini(
         ok: false,
         error: {
           code: "INVALID_MODEL_RESPONSE",
-          message: `Gemini returned invalid JSON: ${getErrorMessage(error)}`,
+          message: `DeepSeek returned invalid JSON: ${getErrorMessage(error)}`,
         },
       };
     }
@@ -1277,12 +1350,200 @@ async function callGemini(
         code: "MODEL_REQUEST_FAILED",
         message:
           error instanceof Error && error.name === "AbortError"
-            ? `Gemini request exceeded ${MODEL_TIMEOUT_MS}ms`
+            ? `DeepSeek request exceeded ${MODEL_TIMEOUT_MS}ms`
             : getErrorMessage(error),
       },
     };
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+// #endregion
+
+// #region Tracing and replay
+
+type TraceEvent =
+  | {
+      type: "run_start";
+      timestamp: string;
+      task: string;
+      model: string;
+      maxSteps: number;
+    }
+  | {
+      type: "model_call";
+      timestamp: string;
+      step: number;
+      durationMs: number;
+      messages: Message[];
+      result: ModelCallResult;
+    }
+  | {
+      type: "tool_call";
+      timestamp: string;
+      step: number;
+      durationMs: number;
+      request: unknown;
+      result: ToolResult;
+    }
+  | {
+      type: "run_end";
+      timestamp: string;
+      result: AgentRunResult;
+    };
+
+type TraceWriter = {
+  id: string;
+  relativePath: string;
+  filePath: string;
+};
+
+type ReplayResult =
+  | {
+      ok: true;
+      traceId: string;
+      events: unknown[];
+    }
+  | {
+      ok: false;
+      error: {
+        code:
+          | "INVALID_TRACE_ID"
+          | "TRACE_READ_FAILED"
+          | "TRACE_PARSE_FAILED";
+        message: string;
+      };
+    };
+
+async function createTraceWriter(
+  workspaceRoot: string,
+): Promise<TraceWriter> {
+  const id = randomUUID();
+  const harnessDirectory = join(workspaceRoot, ".harness");
+
+  await mkdir(harnessDirectory, { recursive: true });
+  const realHarnessDirectory = await realpath(harnessDirectory);
+
+  if (!isInsideWorkspace(workspaceRoot, realHarnessDirectory)) {
+    throw new Error("Harness directory resolves outside the workspace");
+  }
+
+  const directory = join(realHarnessDirectory, "traces");
+
+  await mkdir(directory, { recursive: true });
+  const realDirectory = await realpath(directory);
+
+  if (!isInsideWorkspace(workspaceRoot, realDirectory)) {
+    throw new Error("Trace directory resolves outside the workspace");
+  }
+
+  return {
+    id,
+    relativePath: join(TRACE_DIRECTORY, `${id}.jsonl`),
+    filePath: join(realDirectory, `${id}.jsonl`),
+  };
+}
+
+async function writeTraceEvent(
+  writer: TraceWriter,
+  event: TraceEvent,
+): Promise<void> {
+  await appendFile(
+    writer.filePath,
+    `${JSON.stringify(event)}\n`,
+    "utf8",
+  );
+}
+
+async function replayTrace(
+  workspaceRoot: string,
+  traceId: string,
+): Promise<ReplayResult> {
+  if (!TRACE_ID_PATTERN.test(traceId)) {
+    return {
+      ok: false,
+      error: {
+        code: "INVALID_TRACE_ID",
+        message: "Trace ID must be a UUID generated by the harness",
+      },
+    };
+  }
+
+  try {
+    const traceDirectory = await realpath(
+      join(workspaceRoot, TRACE_DIRECTORY),
+    );
+
+    if (!isInsideWorkspace(workspaceRoot, traceDirectory)) {
+      return {
+        ok: false,
+        error: {
+          code: "TRACE_READ_FAILED",
+          message: "Trace directory resolves outside the workspace",
+        },
+      };
+    }
+
+    const tracePath = await realpath(
+      join(traceDirectory, `${traceId}.jsonl`),
+    );
+
+    if (!isInsideWorkspace(traceDirectory, tracePath)) {
+      return {
+        ok: false,
+        error: {
+          code: "TRACE_READ_FAILED",
+          message: "Trace resolves outside the trace directory",
+        },
+      };
+    }
+
+    const traceStats = await stat(tracePath);
+
+    if (!traceStats.isFile()) {
+      return {
+        ok: false,
+        error: {
+          code: "TRACE_READ_FAILED",
+          message: "Trace is not a regular file",
+        },
+      };
+    }
+
+    const text = await readFile(tracePath, "utf8");
+    const events: unknown[] = [];
+    const lines = text.split("\n");
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+
+      if (line === undefined || line.length === 0) {
+        continue;
+      }
+
+      try {
+        events.push(JSON.parse(line) as unknown);
+      } catch {
+        return {
+          ok: false,
+          error: {
+            code: "TRACE_PARSE_FAILED",
+            message: `Trace line ${index + 1} is not valid JSON`,
+          },
+        };
+      }
+    }
+
+    return { ok: true, traceId, events };
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      error: {
+        code: "TRACE_READ_FAILED",
+        message: getErrorMessage(error),
+      },
+    };
   }
 }
 
@@ -1303,12 +1564,16 @@ type AgentRunResult =
       status: "done";
       answer: string;
       steps: number;
+      traceId: string;
+      tracePath: string;
     }
   | {
       ok: false;
       status: "failed" | "max_steps";
       steps: number;
       error: AgentError;
+      traceId: string;
+      tracePath: string;
     };
 
 function getDoneAnswer(text: string): string | undefined {
@@ -1323,8 +1588,8 @@ function getDoneAnswer(text: string): string | undefined {
   return answer.length > 0 ? answer : undefined;
 }
 
-function createFunctionResponseMessage(
-  action: Extract<ModelAction, { type: "tool_call" }>,
+function createToolResultMessage(
+  action: ToolAction,
   result: ToolResult,
 ): Message {
   const response = result.ok
@@ -1332,30 +1597,32 @@ function createFunctionResponseMessage(
     : { error: result.error };
 
   return {
-    role: "user",
-    parts: [
-      {
-        functionResponse: {
-          ...(action.id === undefined ? {} : { id: action.id }),
-          name: action.name,
-          response,
-        },
-      },
-    ],
+    role: "tool",
+    tool_call_id: action.id,
+    content: JSON.stringify(response),
   };
 }
 
 function createContinueMessage(): Message {
   return {
     role: "user",
-    parts: [
-      {
-        text:
-          "Continue working. Request one tool if more work is needed. " +
-          "If the task is complete, reply with DONE: followed by a concise summary.",
-      },
-    ],
+    content:
+      "Continue working. Request one tool if more work is needed. " +
+      "If the task is complete, reply with DONE: followed by a concise summary.",
   };
+}
+
+async function finishAgentRun(
+  trace: TraceWriter,
+  result: AgentRunResult,
+): Promise<AgentRunResult> {
+  await writeTraceEvent(trace, {
+    type: "run_end",
+    timestamp: new Date().toISOString(),
+    result,
+  });
+
+  return result;
 }
 
 async function runAgent(
@@ -1366,57 +1633,90 @@ async function runAgent(
   maxSteps = MAX_AGENT_STEPS,
 ): Promise<AgentRunResult> {
   const messages = createInitialMessages(task);
+  const trace = await createTraceWriter(workspaceRoot);
+
+  await writeTraceEvent(trace, {
+    type: "run_start",
+    timestamp: new Date().toISOString(),
+    task,
+    model,
+    maxSteps,
+  });
 
   for (let step = 1; step <= maxSteps; step += 1) {
-    const modelResult = await callGemini(
+    const modelStartedAt = Date.now();
+    const modelInput = structuredClone(messages);
+    const modelResult = await callDeepSeek(
       apiKey,
       model,
       messages,
     );
 
+    await writeTraceEvent(trace, {
+      type: "model_call",
+      timestamp: new Date().toISOString(),
+      step,
+      durationMs: Date.now() - modelStartedAt,
+      messages: modelInput,
+      result: modelResult,
+    });
+
     if (!modelResult.ok) {
-      return {
+      return finishAgentRun(trace, {
         ok: false,
         status: "failed",
         steps: step,
         error: modelResult.error,
-      };
+        traceId: trace.id,
+        tracePath: trace.relativePath,
+      });
     }
 
-    // Preserve the exact model content, including call IDs and signatures.
+    // Preserve call IDs and reasoning content required by DeepSeek history.
     messages.push(modelResult.content);
 
     if (modelResult.action.type === "final") {
       const answer = getDoneAnswer(modelResult.action.text);
 
       if (answer !== undefined) {
-        return {
+        return finishAgentRun(trace, {
           ok: true,
           status: "done",
           answer,
           steps: step,
-        };
+          traceId: trace.id,
+          tracePath: trace.relativePath,
+        });
       }
 
       messages.push(createContinueMessage());
       continue;
     }
 
-    const toolResult = await executeTool(
-      modelResult.action.call,
-      workspaceRoot,
-    );
+    for (const action of modelResult.action.calls) {
+      const toolStartedAt = Date.now();
+      const toolResult = await executeTool(
+        action.call,
+        workspaceRoot,
+      );
 
-    // Tool failures are observations, so the model can choose a recovery action.
-    messages.push(
-      createFunctionResponseMessage(
-        modelResult.action,
-        toolResult,
-      ),
-    );
+      await writeTraceEvent(trace, {
+        type: "tool_call",
+        timestamp: new Date().toISOString(),
+        step,
+        durationMs: Date.now() - toolStartedAt,
+        request: action.call,
+        result: toolResult,
+      });
+
+      // Every success or failure must match its DeepSeek tool-call ID.
+      messages.push(
+        createToolResultMessage(action, toolResult),
+      );
+    }
   }
 
-  return {
+  return finishAgentRun(trace, {
     ok: false,
     status: "max_steps",
     steps: maxSteps,
@@ -1424,7 +1724,9 @@ async function runAgent(
       code: "MAX_STEPS_REACHED",
       message: `Agent reached the ${maxSteps}-step limit`,
     },
-  };
+    traceId: trace.id,
+    tracePath: trace.relativePath,
+  });
 }
 
 // #endregion
