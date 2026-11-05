@@ -17,6 +17,7 @@ import {
   resolve,
   sep,
 } from "node:path";
+import { pathToFileURL } from "node:url";
 
 // #endregion
 
@@ -530,6 +531,8 @@ const ALLOWED_EXECUTABLES = new Set([
   "node",
   "npm",
   "pwd",
+  "python",
+  "python3",
   "rg",
 ]);
 
@@ -636,6 +639,40 @@ function validateNodeCommand(args: string[]): PolicyResult {
   );
 }
 
+const PYTHON_TEST_MODULES = new Set(["pytest", "unittest"]);
+
+/**
+ * Mirrors the Node policy: version checks and test runners only.
+ * Arbitrary Python code (`-c`, stdin, scripts, other `-m` modules) stays denied.
+ */
+function validatePythonCommand(args: string[]): PolicyResult {
+  const [mode, ...rest] = args;
+
+  if (mode === "--version" || mode === "-V") {
+    return rest.length === 0
+      ? { ok: true }
+      : denyCommand("Python version flags do not accept arguments");
+  }
+
+  if (mode === "-m") {
+    const moduleName = rest[0];
+
+    if (moduleName === undefined) {
+      return denyCommand("Python -m requires a module name");
+    }
+
+    return PYTHON_TEST_MODULES.has(moduleName)
+      ? { ok: true }
+      : denyCommand(
+          "Python modules are limited to pytest and unittest",
+        );
+  }
+
+  return denyCommand(
+    "Python is limited to --version, -m pytest, and -m unittest",
+  );
+}
+
 function validateNpmCommand(args: string[]): PolicyResult {
   if (args[0] !== "test") {
     return denyCommand("Only npm test is allowed");
@@ -697,6 +734,10 @@ function validateShellPolicy(
 
     case "node":
       return validateNodeCommand(call.args);
+
+    case "python":
+    case "python3":
+      return validatePythonCommand(call.args);
 
     case "npm":
       return validateNpmCommand(call.args);
@@ -944,7 +985,7 @@ async function main(): Promise<void> {
 
 // #region Model boundary
 
-const DEFAULT_DEEPSEEK_MODEL = "deepseek-flash";
+export const DEFAULT_DEEPSEEK_MODEL = "deepseek-flash";
 const MODEL_TIMEOUT_MS = 60_000;
 const MAX_MODEL_ERROR_CHARS = 4_000;
 
@@ -1082,14 +1123,15 @@ const DEEPSEEK_TOOLS = [
     function: {
       name: "shell",
       description:
-        "Run one command allowed by the harness command policy.",
+        "Run one command allowed by the harness command policy. " +
+        "Python is limited to --version, -m pytest, and -m unittest.",
       parameters: {
         type: "object",
         properties: {
           executable: {
             type: "string",
             description:
-              "Executable name such as git, node, npm, rg, ls, or pwd.",
+              "Executable name such as git, node, npm, python3, rg, ls, or pwd.",
           },
           args: {
             type: "array",
@@ -1399,7 +1441,7 @@ type TraceWriter = {
   filePath: string;
 };
 
-type ReplayResult =
+export type ReplayResult =
   | {
       ok: true;
       traceId: string;
@@ -1456,7 +1498,7 @@ async function writeTraceEvent(
   );
 }
 
-async function replayTrace(
+export async function replayTrace(
   workspaceRoot: string,
   traceId: string,
 ): Promise<ReplayResult> {
@@ -1558,7 +1600,7 @@ type AgentError =
       message: string;
     };
 
-type AgentRunResult =
+export type AgentRunResult =
   | {
       ok: true;
       status: "done";
@@ -1625,7 +1667,7 @@ async function finishAgentRun(
   return result;
 }
 
-async function runAgent(
+export async function runAgent(
   task: string,
   apiKey: string,
   model: string,
@@ -1733,21 +1775,28 @@ async function runAgent(
 
 // #region Entrypoint
 
-await main().catch((error: unknown) => {
-  console.error(
-    JSON.stringify(
-      {
-        ok: false,
-        error: {
-          code: "HARNESS_FAILED",
-          message: getErrorMessage(error),
+const entryPath = process.argv[1];
+const isDirectExecution =
+  entryPath !== undefined &&
+  import.meta.url === pathToFileURL(resolve(entryPath)).href;
+
+if (isDirectExecution) {
+  await main().catch((error: unknown) => {
+    console.error(
+      JSON.stringify(
+        {
+          ok: false,
+          error: {
+            code: "HARNESS_FAILED",
+            message: getErrorMessage(error),
+          },
         },
-      },
-      null,
-      2,
-    ),
-  );
-  process.exitCode = 1;
-});
+        null,
+        2,
+      ),
+    );
+    process.exitCode = 1;
+  });
+}
 
 // #endregion

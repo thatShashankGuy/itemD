@@ -20,7 +20,7 @@ The model proposes actions. Deterministic harness code validates and executes th
 ## Design constraints
 
 - TypeScript with erasable syntax supported directly by Node.js.
-- One implementation file: `main.ts`.
+- Core harness logic remains in `main.ts`; `tui.ts` is a thin terminal adapter.
 - Plain functions and explicit types; no classes.
 - Node.js built-ins and `fetch`; zero runtime dependencies.
 - Three model-facing tools: `read_file`, `edit_file`, and `shell`.
@@ -68,7 +68,8 @@ The model proposes actions. Deterministic harness code validates and executes th
 
 ## Current files
 
-- `main.ts` — the single implementation file.
+- `main.ts` — core harness implementation and command-line entrypoint.
+- `tui.ts` — dependency-free interactive terminal interface.
 - `README.md` — project goals, constraints, and progress.
 - `current-slice.tmp` — ignored learning notes for the active slice. It is overwritten when moving to the next slice.
 - `.env` — ignored local configuration such as `DEEPSEEK_API_KEY`.
@@ -97,11 +98,39 @@ npm start -- --replay <trace-id>
 
 Raw JSONL traces are stored under `.harness/traces/` and are excluded from Git.
 
+Start the interactive terminal interface:
+
+```bash
+npm run tui
+```
+
+Enter a task directly, or use `/help`, `/replay <trace-id>`, `/clear`, and `/quit`. Each submitted task starts an independent agent run with its own trace.
+
 Check syntax without making a model request:
 
 ```bash
 npm run check
 ```
+
+## Supported shell commands
+
+The shell tool runs one executable with an argument array, and a deterministic
+allowlist decides what may run:
+
+| Executable | Allowed use |
+| --- | --- |
+| `git` | Read-only subcommands: `status`, `diff`, `log`, `show` |
+| `ls`, `pwd`, `rg` | Inspect workspace files |
+| `node` | `--version`, `--check`, `--test` |
+| `npm` | `test` only |
+| `python`, `python3` | `--version`, `-m pytest`, `-m unittest` |
+
+Python support is deliberately as narrow as the Node policy: it covers version
+reporting and the two standard test runners, so a Python project can be
+inspected, edited, tested, and retested. `-c`, stdin, direct script execution,
+and other `-m` modules (including `pip`) remain denied. This is an allowlist
+against accidental host mutation, not a sandbox. Reads and edits already work
+for `.py` files; nothing about file handling is TypeScript-specific.
 
 ## Non-goals for now
 

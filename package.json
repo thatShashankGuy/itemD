@@ -5,7 +5,8 @@
   "main": "main.ts",
   "scripts": {
     "start": "node --env-file=.env main.ts",
-    "check": "node --check main.ts"
+    "tui": "node --env-file=.env tui.ts",
+    "check": "node --check main.ts && node --check tui.ts"
   },
   "keywords": [],
   "type": "module",
