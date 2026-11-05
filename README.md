@@ -1,137 +1,205 @@
 # TypeScript Coding Harness
 
-A small, framework-free coding harness built to make the runtime around a model explicit and understandable.
-
-The project is being written one learning slice at a time. Each slice should remain runnable before the next capability is introduced.
-
-## Goal
-
-Build a single-file coding agent that can:
-
-1. Accept a natural-language coding task.
-2. Ask a DeepSeek model what to do next.
-3. Read files, edit files, and run shell commands.
-4. Return every tool result—including failures—to the model.
-5. Repeat until the model explicitly reports completion or a maximum step limit is reached.
-6. Record enough detail to understand and replay the run.
+A small, dependency-free coding agent that keeps the runtime around the model visible: model calls, tool requests, validation, command execution, workspace boundaries, failures, step limits, and traces.
 
 The model proposes actions. Deterministic harness code validates and executes them.
 
-## Design constraints
+## What it can do
 
-- TypeScript with erasable syntax supported directly by Node.js.
-- Core harness logic remains in `main.ts`; `tui.ts` is a thin terminal adapter.
-- Plain functions and explicit types; no classes.
-- Node.js built-ins and `fetch`; zero runtime dependencies.
-- Three model-facing tools: `read_file`, `edit_file`, and `shell`.
-- Tool arguments enter the harness as `unknown` and are validated at runtime.
-- Expected failures are structured data, not thrown exceptions.
-- Workspace and command safety are enforced in code, not only in the system prompt.
-- A hard maximum step count prevents an unbounded agent loop.
-- Model calls, tool calls, and tool results are written to a trace file.
-- Completion requires an explicit done response from the model.
+- Accept a natural-language coding task through a one-shot CLI or persistent terminal interface.
+- Call DeepSeek directly with `fetch`, without an SDK or agent framework.
+- Read and edit workspace files and run a conservative set of inspection and test commands.
+- Validate every model-supplied tool call before execution.
+- Execute multiple tool calls from one model turn in deterministic order.
+- Return tool failures to the model as observations so it can recover.
+- Stop on an explicit `DONE:` response or after 50 model steps.
+- Record model calls, tool calls, results, errors, durations, and final status as JSONL.
+- Replay a previous run without calling the model or executing tools.
 
-## Learning slices
+## Requirements
 
-- [x] **Slice 1 — Command runner**
-  - Execute an executable with an argument array.
-  - Capture stdout, stderr, exit code, signal, duration, and cwd.
-  - Return command and spawn failures as structured data.
+- A recent Node.js release with native erasable TypeScript support and `--env-file`.
+- A DeepSeek API key.
 
-- [x] **Slice 2 — Explicit tools**
-  - Define `read_file`, `edit_file`, and `shell` as typed data.
-  - Validate untrusted input at runtime.
-  - Dispatch each valid call through one function.
-  - Return tool failures as structured results.
+There are no package dependencies and no install step.
 
-- [x] **Slice 3 — Safety and sanity**
-  - Confine file operations to the workspace.
-  - Reject traversal and symlink escapes.
-  - Add a deterministic shell-command policy.
-  - Add command timeouts and output limits.
+## Setup
 
-- [x] **Slice 4 — DeepSeek model call**
-  - Add the system prompt and message-history array.
-  - Call DeepSeek with `fetch` and no SDK.
-  - Parse text and function-call responses at the trust boundary.
+Create an ignored `.env` file in the project root:
 
-- [x] **Slice 5 — Agent loop**
-  - Repeatedly call the model, execute tools, and append observations.
-  - Return tool failures to the model so it can recover.
-  - Enforce a maximum step count.
-  - Stop on a clear done response.
-
-- [x] **Slice 6 — Tracing and replay**
-  - Log every model call, tool call, result, duration, and error.
-  - Store traces as local JSON Lines files.
-  - Add a simple replay command for debugging.
-
-## Current files
-
-- `main.ts` — core harness implementation and command-line entrypoint.
-- `tui.ts` — dependency-free interactive terminal interface.
-- `README.md` — project goals, constraints, and progress.
-- `current-slice.tmp` — ignored learning notes for the active slice. It is overwritten when moving to the next slice.
-- `.env` — ignored local configuration such as `DEEPSEEK_API_KEY`.
-
-## Current slice
-
-Slice 6 is complete. Agent runs now record model calls, tool calls, results, durations, errors, and final status as replayable JSON Lines traces.
-
-The ignored `current-slice.tmp` retains the Slice 6 learning reference and will be overwritten when the next slice begins.
-
-## Running the current harness
-
-Run a multi-turn coding task:
-
-```bash
-npm start -- "Read package.json and report the package name. Do not edit files."
+```dotenv
+DEEPSEEK_API_KEY=your-api-key
+DEEPSEEK_MODEL=deepseek-flash
 ```
 
-The harness now executes validated tool requests, returns both successes and failures to the model, and repeats until the model responds with `DONE:` or reaches the 50-step limit.
+`DEEPSEEK_MODEL` is optional and defaults to `deepseek-flash`.
 
-Each run returns a trace ID. Replay it without making a model request or executing tools:
-
-```bash
-npm start -- --replay <trace-id>
-```
-
-Raw JSONL traces are stored under `.harness/traces/` and are excluded from Git.
-
-Start the interactive terminal interface:
-
-```bash
-npm run tui
-```
-
-Enter a task directly, or use `/help`, `/replay <trace-id>`, `/clear`, and `/quit`. Each submitted task starts an independent agent run with its own trace.
-
-Check syntax without making a model request:
+Check both TypeScript entrypoints without making a model request:
 
 ```bash
 npm run check
 ```
 
-## Supported shell commands
+## Terminal interface
 
-The shell tool runs one executable with an argument array, and a deterministic
-allowlist decides what may run:
+Start the interactive interface:
+
+```bash
+npm run tui
+```
+
+Enter a coding task at the prompt:
+
+```text
+harness> inspect the failing tests and make the smallest focused fix
+```
+
+Each submitted task starts an independent agent run with its own history and trace.
+
+| Command | Behavior |
+| --- | --- |
+| `/help` | Show available commands |
+| `/replay <trace-id>` | Display a recorded run without executing it |
+| `/clear` | Clear the terminal |
+| `/quit` or `/exit` | Exit the interface |
+
+## One-shot CLI
+
+Run one task:
+
+```bash
+npm start -- "Read package.json and report the package name. Do not edit files."
+```
+
+A successful result includes the answer, model-step count, trace ID, and trace path:
+
+```json
+{
+  "ok": true,
+  "status": "done",
+  "answer": "The package name is code-harness.",
+  "steps": 2,
+  "traceId": "7a207062-1f03-427e-a06a-4bdd48a75d5b",
+  "tracePath": ".harness/traces/7a207062-1f03-427e-a06a-4bdd48a75d5b.jsonl"
+}
+```
+
+Replay the run:
+
+```bash
+npm start -- --replay 7a207062-1f03-427e-a06a-4bdd48a75d5b
+```
+
+Replay is read-only: it does not contact DeepSeek or execute recorded tools.
+
+## Agent flow
+
+```text
+task
+  -> DeepSeek model call
+  -> runtime-validate zero or more requested tools
+  -> enforce workspace and command policy
+  -> execute tools in order
+  -> append every success or failure to history
+  -> repeat until DONE: or the 50-step limit
+  -> return result and trace ID
+```
+
+The original task remains in history for the whole run. DeepSeek tool-call IDs and reasoning content are preserved across turns.
+
+## Model-facing tools
+
+| Tool | Purpose |
+| --- | --- |
+| `read_file` | Read one UTF-8 workspace file |
+| `edit_file` | Replace one exact, unique text occurrence in an existing file |
+| `shell` | Run an executable and argument array accepted by the command policy |
+
+External tool input remains `unknown` until it passes handwritten runtime validation. Expected failures use structured results rather than exceptions.
+
+## Safety boundaries
+
+Filesystem operations:
+
+- Resolve paths against the real workspace root.
+- Reject paths that resolve outside the workspace.
+- Reject symlink escapes.
+- Block `.git`, `.harness`, `.env`, and `.env.*` from model-facing tools.
+- Limit files and edited output to 200,000 bytes.
+
+Command execution:
+
+- Spawns executables directly without shell interpolation.
+- Uses the workspace as the working directory.
+- Captures stdout, stderr, exit code, signal, duration, timeout, and truncation state.
+- Applies a 30-second timeout and 100,000-character limits to stdout and stderr.
+- Treats non-zero exits as tool data rather than harness crashes.
+
+The command policy protects against common accidental host mutation. It is an allowlist, not an operating-system sandbox.
+
+## Supported shell commands
 
 | Executable | Allowed use |
 | --- | --- |
-| `git` | Read-only subcommands: `status`, `diff`, `log`, `show` |
-| `ls`, `pwd`, `rg` | Inspect workspace files |
-| `node` | `--version`, `--check`, `--test` |
-| `npm` | `test` only |
-| `python`, `python3` | `--version`, `-m pytest`, `-m unittest` |
+| `git` | Read-only `status`, `diff`, `log`, and `show` |
+| `ls`, `pwd`, `rg` | Workspace inspection |
+| `node` | `--version`, `--check`, and `--test` |
+| `npm` | `npm test`, with options only after `--` |
+| `python`, `python3` | Version checks, `-m pytest`, and `-m unittest` |
 
-Python support is deliberately as narrow as the Node policy: it covers version
-reporting and the two standard test runners, so a Python project can be
-inspected, edited, tested, and retested. `-c`, stdin, direct script execution,
-and other `-m` modules (including `pip`) remain denied. This is an allowlist
-against accidental host mutation, not a sandbox. Reads and edits already work
-for `.py` files; nothing about file handling is TypeScript-specific.
+Arbitrary Node or Python evaluation, direct script execution, package installation, Git mutation, sensitive paths, absolute paths, and unsafe command options are denied.
 
-## Non-goals for now
+## Tracing and replay
 
-This project intentionally avoids agent frameworks, MCP, RAG, vector databases, persistent memory, browser automation, subagents, containers, and a web interface. Those features would obscure the small runtime being studied.
+Traces are append-only JSON Lines files under:
+
+```text
+.harness/traces/<trace-id>.jsonl
+```
+
+A typical one-tool trace contains:
+
+```text
+run_start
+model_call
+tool_call
+model_call
+run_end
+```
+
+Trace and harness directories are checked for symlink escapes. Replay accepts only harness-generated UUIDs and verifies that the target is a regular file inside the trace directory.
+
+Traces are excluded from Git, but they can contain task text, model reasoning, file contents, command output, and errors. Treat them as sensitive local debugging artifacts.
+
+## Repository layout
+
+```text
+main.ts            Core harness, CLI, model adapter, tools, loop, and tracing
+tui.ts             Thin interactive terminal adapter
+package.json       Start, TUI, and syntax-check scripts
+README.md          Project documentation
+current-slice.tmp  Ignored learning reference for the active slice
+.env               Ignored DeepSeek configuration
+.harness/traces/   Ignored runtime traces
+```
+
+The core remains framework-light: plain functions, explicit types, Node.js built-ins, and no classes.
+
+## Completed learning slices
+
+1. Command execution with structured results.
+2. Explicit `read_file`, `edit_file`, and `shell` contracts.
+3. Workspace confinement, command policy, timeouts, and output bounds.
+4. DeepSeek model boundary and runtime response parsing.
+5. Multi-turn agent loop, tool-failure recovery, and explicit completion.
+6. JSONL tracing and read-only replay.
+
+The dependency-free terminal interface was added after the six core learning slices.
+
+## Current limitations
+
+- The command allowlist is intentionally narrow.
+- Each TUI task starts a new run; there is no persistent cross-task memory.
+- Replay displays recorded events but does not filter or summarize them.
+- Trace write failures surface as top-level harness failures.
+- There is no container isolation, confirmation workflow, browser automation, web UI, or multi-agent system.
