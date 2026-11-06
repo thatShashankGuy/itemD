@@ -22,6 +22,7 @@ function isBlockedWorkspacePath(root: string, target: string): boolean {
 
   return (
     firstPart === ".git" ||
+    firstPart === ".itemd" ||
     firstPart === ".harness" ||
     firstPart === ".env" ||
     firstPart.startsWith(".env.")

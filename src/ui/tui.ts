@@ -20,7 +20,7 @@ import {
 
 // #region Presentation
 
-const PROMPT = "harness> ";
+const PROMPT = "itemD> ";
 
 function writeLine(text = ""): void {
   output.write(`${text}\n`);
@@ -97,7 +97,7 @@ async function runTui(): Promise<void> {
     readline.close();
   });
 
-  writeLine("TypeScript Coding Harness");
+  writeLine("itemD — TypeScript Coding Harness");
   writeLine(`workspace: ${workspaceRoot}`);
   writeLine(`model: ${model}`);
   writeLine("Type /help for commands. Each task starts a new run.");
@@ -171,7 +171,7 @@ async function runTui(): Promise<void> {
         const message =
           error instanceof Error ? error.message : String(error);
 
-        writeLine(`[harness error] ${message}`);
+        writeLine(`[itemD error] ${message}`);
         writeLine();
       }
     }

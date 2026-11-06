@@ -82,7 +82,7 @@ if (isDirectExecution) {
         {
           ok: false,
           error: {
-            code: "HARNESS_FAILED",
+            code: "ITEMD_FAILED",
             message: getErrorMessage(error),
           },
         },

@@ -1,7 +1,7 @@
 {
-  "name": "code-harness",
+  "name": "itemd",
   "version": "1.0.0",
-  "description": "",
+  "description": "An explicit, replayable TypeScript coding-agent harness.",
   "main": "main.ts",
   "scripts": {
     "start": "node --env-file=.env main.ts",
@@ -15,12 +15,12 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/thatShashankGuy/code-harness.git"
+    "url": "git+https://github.com/thatShashankGuy/itemD.git"
   },
   "bugs": {
-    "url": "https://github.com/thatShashankGuy/code-harness/issues"
+    "url": "https://github.com/thatShashankGuy/itemD/issues"
   },
-  "homepage": "https://github.com/thatShashankGuy/code-harness#readme",
+  "homepage": "https://github.com/thatShashankGuy/itemD#readme",
   "devDependencies": {
     "@types/node": "^26.6.6",
     "typescript": "^7.0.2",

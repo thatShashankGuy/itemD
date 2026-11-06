@@ -39,6 +39,7 @@ function denyCommand(message: string): PolicyResult {
 function isSensitivePathPart(part: string): boolean {
   return (
     part === ".git" ||
+    part === ".itemd" ||
     part === ".harness" ||
     part === ".env" ||
     part.startsWith(".env.")

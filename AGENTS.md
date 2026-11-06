@@ -1,13 +1,13 @@
-# TypeScript Coding Harness — Agent Instructions
+# itemD — Agent Instructions
 
 ## Mission
 
-Build a framework-light coding harness in TypeScript that makes the runtime around the model explicit: tool calls, command execution, permissions, workspace boundaries, context, Git, failures, tracing, and evaluation.
+Build itemD, a framework-light coding harness in TypeScript that makes the runtime around the model explicit: tool calls, command execution, permissions, workspace boundaries, context, Git, failures, tracing, and evaluation.
 
 The north-star workflow is:
 
 ```text
-harness "fix the failing tests"
+itemd "fix the failing tests"
   -> run tests
   -> inspect the failure and relevant source
   -> make a focused edit
@@ -36,7 +36,8 @@ Do not introduce MCP, vector databases, RAG, multi-agent systems, subagents, bro
 - `node:child_process` for command execution.
 - `node:fs/promises` for file operations.
 - `node:path` and filesystem metadata for workspace safety.
-- A model SDK directly for structured model/tool interaction.
+- Provider adapters using `fetch` for structured model/tool interaction; add an
+  SDK only when a concrete provider requirement justifies it.
 - Zod only if handwritten runtime validation becomes cumbersome.
 - Vitest when automated tests and fixture repositories are introduced.
 - Git commands behind typed operations for status, diffs, and changed files.
@@ -63,6 +64,67 @@ User task
 - The tool registry validates and dispatches supported calls.
 - Tools never bypass workspace or permission checks.
 - History records calls and observations without becoming coupled to one model SDK.
+
+## Current Next Slice: Provider Setup and Adapters
+
+The next planned slice is TUI onboarding and a provider-neutral model-adapter
+boundary. Implement it one checkpoint at a time using `current-slice.tmp` as the
+acceptance plan.
+
+Provider availability for this slice:
+
+| Provider | Status |
+| --- | --- |
+| DeepSeek | Enabled |
+| OpenAI | Disabled — Coming soon |
+| OpenRouter | Disabled — Coming soon |
+| Anthropic | Disabled — Coming soon |
+| Gemini | Disabled — Coming soon |
+
+- Do not implement, call, or accept credentials for a disabled provider.
+- Do not silently map disabled providers to DeepSeek.
+- Keep provider metadata in one catalog consumed by setup, validation, and the
+  adapter factory.
+- Keep the agent runner provider-neutral. Provider-specific messages,
+  authentication, endpoints, request parameters, and response translation
+  belong under `src/model/adapters/`.
+- Only the DeepSeek adapter is executable in this slice.
+- Preserve current CLI, TUI, trace, and replay behavior after each checkpoint.
+
+DeepSeek setup initially supports:
+
+- models `deepseek-flash` and `deepseek-v4-pro`;
+- reasoning disabled (`none`) or enabled at `low`, `high`, or `max` effort;
+- `high` as the default effort.
+
+## Configuration and Credential Rules
+
+- TUI first-run setup may collect and persist an API key only after an enabled
+  provider, valid model, and valid effort have been selected.
+- Hide or mask API-key input. Never echo the key back in a confirmation summary.
+- Prefer a user-level itemD configuration directory over the target workspace.
+- Support an explicit config-path override so tests use a temporary directory
+  and never touch the developer's real configuration.
+- Parse configuration as `unknown` and validate every field before use.
+- Write configuration atomically and use user-only file permissions where the
+  platform supports them.
+- Environment variables override stored configuration and existing DeepSeek
+  environment setup remains compatible.
+- Never include credentials in errors, task history, tool results, traces,
+  replay output, debug logs, Git diffs, or fixtures.
+- Missing configuration is normal first-run state. Malformed configuration must
+  produce a recoverable setup error rather than a crash.
+- Replay must remain available without model credentials.
+
+## TUI Setup Rules
+
+- Show enabled and disabled providers in one selection menu.
+- A disabled selection displays `Coming soon` and returns to provider selection.
+- Drive provider, model, and effort choices from the shared provider catalog.
+- Support rerunning setup from an active TUI session without corrupting the last
+  working configuration.
+- Ctrl+C during setup must exit cleanly without saving partial state.
+- Keep setup input/output injectable so it can be tested without a real terminal.
 
 ## Development Sequence
 
@@ -176,6 +238,12 @@ Add tests at the boundary being introduced in the current phase. Important cases
 - context truncation;
 - Git status and diff parsing;
 - cleanup after failures or cancellation.
+- provider catalog validation and disabled-provider selection;
+- configuration read, validation, atomic write, and permission behavior;
+- credential redaction from errors, output, and traces;
+- model and reasoning-effort compatibility;
+- adapter request construction and malformed provider responses;
+- first-run TUI setup, cancellation, and reconfiguration.
 
 Once the core workflow exists, build fixture repositories covering a simple failing function, edge cases, missing validation, TypeScript compilation, broken imports, async behavior, parsing, regressions, configuration, and multi-file bugs.
 
@@ -190,17 +258,40 @@ For evaluation runs, record:
 
 ## Repository Shape
 
-Start small:
+Current responsibility-based layout:
 
 ```text
+main.ts
 src/
-  main.ts
-  shell.ts
+  agent/
+    runner.ts
+    types.ts
+  execution/
+    command.ts
+  model/
+    adapters/
+      deepseek.ts
+  permissions/
+    shell-policy.ts
+  shared/
+    runtime.ts
+  telemetry/
+    trace.ts
+  tools/
+    contracts.ts
+    dispatcher.ts
+  ui/
+    tui.ts
+  workspace/
+    files.ts
+tests/
 package.json
 tsconfig.json
 ```
 
-Split into `agent/`, `model/`, `tools/`, `workspace/`, `permissions/`, and `telemetry/` only when real responsibilities require those boundaries. Do not create empty architectural layers in advance.
+Keep root `main.ts` as the CLI entrypoint. Add files only when they own a real
+responsibility; do not create empty provider adapters or placeholder layers for
+disabled vendors.
 
 ## Working Agreement for Agents
 
@@ -218,7 +309,7 @@ If a requested change jumps ahead in the roadmap, implement only the dependencie
 
 ## First Milestone Definition of Done
 
-The first coding-harness milestone is complete only when:
+The first itemD milestone is complete only when:
 
 - the CLI accepts a natural-language task;
 - the harness can read and search workspace files;

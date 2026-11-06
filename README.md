@@ -1,6 +1,6 @@
-# TypeScript Coding Harness
+# itemD
 
-A small, dependency-free coding agent that keeps the runtime around the model visible: model calls, tool requests, validation, command execution, workspace boundaries, failures, step limits, and traces.
+itemD is a small, dependency-free TypeScript coding-agent harness that keeps the runtime around the model visible: model calls, tool requests, validation, command execution, workspace boundaries, failures, step limits, and traces.
 
 The model proposes actions. Deterministic harness code validates and executes them.
 
@@ -57,7 +57,7 @@ npm run tui
 Enter a coding task at the prompt:
 
 ```text
-harness> inspect the failing tests and make the smallest focused fix
+itemD> inspect the failing tests and make the smallest focused fix
 ```
 
 Each submitted task starts an independent agent run with its own history and trace.
@@ -83,10 +83,10 @@ A successful result includes the answer, model-step count, trace ID, and trace p
 {
   "ok": true,
   "status": "done",
-  "answer": "The package name is code-harness.",
+  "answer": "The package name is itemd.",
   "steps": 2,
   "traceId": "7a207062-1f03-427e-a06a-4bdd48a75d5b",
-  "tracePath": ".harness/traces/7a207062-1f03-427e-a06a-4bdd48a75d5b.jsonl"
+  "tracePath": ".itemd/traces/7a207062-1f03-427e-a06a-4bdd48a75d5b.jsonl"
 }
 ```
 
@@ -157,7 +157,8 @@ Filesystem operations:
 - Resolve paths against the real workspace root.
 - Reject paths that resolve outside the workspace.
 - Reject symlink escapes.
-- Block `.git`, `.harness`, `.env`, and `.env.*` from model-facing tools.
+- Block `.git`, `.itemd`, legacy `.harness`, `.env`, and `.env.*` from
+  model-facing tools.
 - Limit files and edited output to 200,000 bytes.
 
 Command execution:
@@ -187,7 +188,7 @@ Arbitrary Node or Python evaluation, direct script execution, package installati
 Traces are append-only JSON Lines files under:
 
 ```text
-.harness/traces/<trace-id>.jsonl
+.itemd/traces/<trace-id>.jsonl
 ```
 
 A typical one-tool trace contains:
@@ -200,14 +201,14 @@ model_call
 run_end
 ```
 
-Trace and harness directories are checked for symlink escapes. Replay accepts only harness-generated UUIDs and verifies that the target is a regular file inside the trace directory.
+Trace and itemD runtime directories are checked for symlink escapes. Replay accepts only itemD-generated UUIDs and verifies that the target is a regular file inside the trace directory.
 
 Traces are excluded from Git, but they can contain task text, model reasoning, file contents, command output, and errors. Treat them as sensitive local debugging artifacts.
 
 ## Repository layout
 
 ```text
-code-harness/
+itemD/
 ├── main.ts                         # CLI entrypoint and public exports
 ├── src/
 │   ├── agent/
@@ -239,7 +240,7 @@ code-harness/
 ├── README.md                       # Project documentation
 ├── current-slice.tmp               # Ignored learning reference
 ├── .env                            # Ignored DeepSeek configuration
-└── .harness/
+└── .itemd/
     └── traces/                     # Ignored runtime JSONL traces
 ```
 
