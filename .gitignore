@@ -2,3 +2,4 @@
 .zed/
 current-slice.tmp
 .harness/
+node_modules/

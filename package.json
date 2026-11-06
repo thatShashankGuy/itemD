@@ -5,8 +5,11 @@
   "main": "main.ts",
   "scripts": {
     "start": "node --env-file=.env main.ts",
-    "tui": "node --env-file=.env tui.ts",
-    "check": "node --check main.ts && node --check tui.ts"
+    "tui": "node --env-file=.env src/ui/tui.ts",
+    "check": "npm run typecheck && npm test",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [],
   "type": "module",
@@ -17,5 +20,10 @@
   "bugs": {
     "url": "https://github.com/thatShashankGuy/code-harness/issues"
   },
-  "homepage": "https://github.com/thatShashankGuy/code-harness#readme"
+  "homepage": "https://github.com/thatShashankGuy/code-harness#readme",
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
 }

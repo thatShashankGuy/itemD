@@ -7,12 +7,14 @@ import {
 } from "node:process";
 import { createInterface } from "node:readline/promises";
 import {
-  DEFAULT_DEEPSEEK_MODEL,
-  replayTrace,
   runAgent,
   type AgentRunResult,
+} from "../agent/runner.ts";
+import { DEFAULT_DEEPSEEK_MODEL } from "../model/adapters/deepseek.ts";
+import {
+  replayTrace,
   type ReplayResult,
-} from "./main.ts";
+} from "../telemetry/trace.ts";
 
 // #endregion
 

@@ -21,9 +21,15 @@ The model proposes actions. Deterministic harness code validates and executes th
 - A recent Node.js release with native erasable TypeScript support and `--env-file`.
 - A DeepSeek API key.
 
-There are no package dependencies and no install step.
+There are no runtime dependencies. TypeScript, Node type definitions, and Vitest are development dependencies used for verification.
 
 ## Setup
+
+Install the development tooling:
+
+```bash
+npm install
+```
 
 Create an ignored `.env` file in the project root:
 
@@ -34,7 +40,7 @@ DEEPSEEK_MODEL=deepseek-flash
 
 `DEEPSEEK_MODEL` is optional and defaults to `deepseek-flash`.
 
-Check both TypeScript entrypoints without making a model request:
+Type-check every module and run the boundary tests without making a model request:
 
 ```bash
 npm run check
@@ -174,13 +180,26 @@ Traces are excluded from Git, but they can contain task text, model reasoning, f
 ## Repository layout
 
 ```text
-main.ts            Core harness, CLI, model adapter, tools, loop, and tracing
-tui.ts             Thin interactive terminal adapter
-package.json       Start, TUI, and syntax-check scripts
-README.md          Project documentation
-current-slice.tmp  Ignored learning reference for the active slice
-.env               Ignored DeepSeek configuration
-.harness/traces/   Ignored runtime traces
+main.ts                              CLI entrypoint and public exports
+src/agent/runner.ts                  Agent loop, completion, and step limit
+src/agent/types.ts                   Agent result contracts
+src/model/adapters/deepseek.ts       DeepSeek adapter and response validation
+src/tools/contracts.ts               Tool types and runtime validation
+src/tools/dispatcher.ts              Tool implementations and dispatcher
+src/workspace/files.ts               Path confinement and file checks
+src/permissions/shell-policy.ts      Deterministic command policy
+src/execution/command.ts             Bounded child-process execution
+src/telemetry/trace.ts               JSONL tracing and replay
+src/shared/runtime.ts                Generic guards and error helpers
+src/ui/tui.ts                        Interactive terminal adapter
+package.json                         Start, TUI, type-check, and test scripts
+package-lock.json                    Reproducible tool versions
+tsconfig.json                        Strict TypeScript configuration
+tests/                               Vitest boundary tests
+README.md                            Project documentation
+current-slice.tmp                    Ignored learning reference
+.env                                 Ignored DeepSeek configuration
+.harness/traces/                     Ignored runtime traces
 ```
 
 The core remains framework-light: plain functions, explicit types, Node.js built-ins, and no classes.
