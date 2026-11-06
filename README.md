@@ -100,18 +100,45 @@ Replay is read-only: it does not contact DeepSeek or execute recorded tools.
 
 ## Agent flow
 
-```text
-task
-  -> DeepSeek model call
-  -> runtime-validate zero or more requested tools
-  -> enforce workspace and command policy
-  -> execute tools in order
-  -> append every success or failure to history
-  -> repeat until DONE: or the 50-step limit
-  -> return result and trace ID
+```mermaid
+flowchart TD
+    User["Natural-language task"] --> Entry{"Entry point"}
+    Entry -->|One-shot| CLI["main.ts CLI"]
+    Entry -->|Interactive| TUI["src/ui/tui.ts"]
+
+    CLI --> Agent["Agent loop"]
+    TUI --> Agent
+
+    Agent -->|"History + tool definitions"| Model["DeepSeek adapter"]
+    Model --> Decision{"Model action"}
+
+    Decision -->|"Final text"| Done{"Starts with DONE:?"}
+    Done -->|No| Continue["Append continuation reminder"]
+    Continue --> Agent
+    Done -->|Yes| Result["Return answer, steps, and trace ID"]
+
+    Decision -->|"One or more tool calls"| Validate["Validate unknown arguments"]
+    Validate -->|Invalid| Observation["Structured tool failure"]
+    Validate -->|File tool| Workspace["Workspace and symlink checks"]
+    Validate -->|Shell tool| Policy["Command allowlist policy"]
+
+    Workspace --> FileTool["Read or exact edit"]
+    Policy --> Command["Bounded command runner"]
+    FileTool --> Observation
+    Command --> Observation
+    Observation -->|"Append every result to history"| Agent
+
+    Agent -.->|"run/model events"| Trace["JSONL trace"]
+    Observation -.->|"tool event"| Trace
+    Result -.->|"run_end"| Trace
+
+    Replay["Replay command"] -->|"Read only"| Trace
+    Trace --> Display["Recorded events"]
 ```
 
-The original task remains in history for the whole run. DeepSeek tool-call IDs and reasoning content are preserved across turns.
+The agent loop owns history, the 50-step limit, and completion. The model adapter only translates between DeepSeek and internal actions. Tool arguments stay `unknown` until validation, and deterministic workspace or command policy runs before execution. Every success and expected failure becomes an observation that the model can use on its next turn.
+
+The original task remains in history for the whole run. DeepSeek tool-call IDs and reasoning content are preserved across turns. Replay follows a separate read-only path and never enters the model or tool-execution flow.
 
 ## Model-facing tools
 
@@ -180,26 +207,40 @@ Traces are excluded from Git, but they can contain task text, model reasoning, f
 ## Repository layout
 
 ```text
-main.ts                              CLI entrypoint and public exports
-src/agent/runner.ts                  Agent loop, completion, and step limit
-src/agent/types.ts                   Agent result contracts
-src/model/adapters/deepseek.ts       DeepSeek adapter and response validation
-src/tools/contracts.ts               Tool types and runtime validation
-src/tools/dispatcher.ts              Tool implementations and dispatcher
-src/workspace/files.ts               Path confinement and file checks
-src/permissions/shell-policy.ts      Deterministic command policy
-src/execution/command.ts             Bounded child-process execution
-src/telemetry/trace.ts               JSONL tracing and replay
-src/shared/runtime.ts                Generic guards and error helpers
-src/ui/tui.ts                        Interactive terminal adapter
-package.json                         Start, TUI, type-check, and test scripts
-package-lock.json                    Reproducible tool versions
-tsconfig.json                        Strict TypeScript configuration
-tests/                               Vitest boundary tests
-README.md                            Project documentation
-current-slice.tmp                    Ignored learning reference
-.env                                 Ignored DeepSeek configuration
-.harness/traces/                     Ignored runtime traces
+code-harness/
+├── main.ts                         # CLI entrypoint and public exports
+├── src/
+│   ├── agent/
+│   │   ├── runner.ts               # Loop, history, completion, step limit
+│   │   └── types.ts                # Agent result contracts
+│   ├── execution/
+│   │   └── command.ts              # Bounded child-process execution
+│   ├── model/
+│   │   └── adapters/
+│   │       └── deepseek.ts         # DeepSeek request/response boundary
+│   ├── permissions/
+│   │   └── shell-policy.ts         # Deterministic command allowlist
+│   ├── shared/
+│   │   └── runtime.ts              # Generic guards and error helpers
+│   ├── telemetry/
+│   │   └── trace.ts                # JSONL tracing and read-only replay
+│   ├── tools/
+│   │   ├── contracts.ts            # Tool types and runtime validation
+│   │   └── dispatcher.ts           # Tool implementations and dispatch
+│   ├── ui/
+│   │   └── tui.ts                  # Interactive terminal adapter
+│   └── workspace/
+│       └── files.ts                # Path confinement and file checks
+├── tests/
+│   └── boundaries.test.ts          # Vitest trust-boundary tests
+├── package.json                    # Runtime and verification scripts
+├── package-lock.json               # Reproducible tool versions
+├── tsconfig.json                   # Strict TypeScript configuration
+├── README.md                       # Project documentation
+├── current-slice.tmp               # Ignored learning reference
+├── .env                            # Ignored DeepSeek configuration
+└── .harness/
+    └── traces/                     # Ignored runtime JSONL traces
 ```
 
 The core remains framework-light: plain functions, explicit types, Node.js built-ins, and no classes.
