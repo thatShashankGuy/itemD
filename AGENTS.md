@@ -230,11 +230,21 @@ Never implement safety as prompt text alone. Enforcement belongs in deterministi
 
 - Treat Git as an audit mechanism, not merely another shell command.
 - Inspect status before work so pre-existing user changes remain distinguishable.
+- At the start of every session, create a new working branch from the current
+  `origin/master` before editing. Fetch `origin/master` first when network
+  access is available; never begin work directly on `master`.
+- Never commit to or push `master` directly. Use a descriptive branch such as
+  `feature/<short-description>` or `chore/<short-description>`.
 - Never overwrite, revert, or discard unrelated changes.
 - Prefer focused edits that directly address the task.
 - After editing, inspect the diff and rerun the most relevant checks.
 - Report changed files and the final test state.
-- Never commit or push without explicit confirmation.
+- At the end of a session, commit the completed work and push the working
+  branch to `origin` with its upstream configured. Do not merge or push the
+  branch into `master` unless the user explicitly asks for that separately.
+- Never commit or push without explicit confirmation for a materially
+  different action; the session's requested branch push is the expected
+  handoff.
 
 ## Testing and Evaluation
 
