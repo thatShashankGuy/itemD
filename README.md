@@ -1,6 +1,7 @@
 # itemD
 
-itemD is a small TypeScript coding-agent harness that keeps the runtime around the model visible: model calls, tool requests, validation, command execution, workspace boundaries, failures, step limits, and traces.
+![Just one more commit ! ](/assets/Just_One_More_Commit.png)
+itemD is a small coding-agent harness that keeps the runtime around the model visible: model calls, tool requests, validation, command execution, workspace boundaries, failures, step limits, and traces.
 
 The model proposes actions. Deterministic harness code validates and executes them.
 
