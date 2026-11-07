@@ -131,7 +131,22 @@ const KEYBOARD_HELP =
 
 const LOGO_ASSET_NAME = "Just_One_More_Commit.png";
 
-function logoSource(): URL {
+function logoSource(): URL | Blob {
+  const bun = (
+    globalThis as {
+      Bun?: {
+        embeddedFiles?: readonly (Blob & { name?: string })[];
+      };
+    }
+  ).Bun;
+  const embeddedLogo = bun?.embeddedFiles?.find((file) =>
+    file.name?.includes(LOGO_ASSET_NAME),
+  );
+
+  if (embeddedLogo !== undefined) {
+    return embeddedLogo;
+  }
+
   const assetPath = isStandaloneExecutable()
     ? `assets/${LOGO_ASSET_NAME}`
     : `../../assets/${LOGO_ASSET_NAME}`;
