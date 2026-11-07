@@ -1,6 +1,4 @@
 import { realpath } from "node:fs/promises";
-import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import {
   runAgent,
   type AgentRunResult,
@@ -343,16 +341,4 @@ export async function runTui(
   }
 
   writeLine(io, "Goodbye.");
-}
-
-const entryPath = process.argv[1];
-const isDirectExecution =
-  entryPath !== undefined &&
-  import.meta.url === pathToFileURL(resolve(entryPath)).href;
-
-if (isDirectExecution) {
-  await runTui().catch((error: unknown) => {
-    console.error(`[tui error] ${getErrorMessage(error)}`);
-    process.exitCode = 1;
-  });
 }

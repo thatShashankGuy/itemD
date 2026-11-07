@@ -8,7 +8,7 @@ The model proposes actions. Deterministic harness code validates and executes th
 
 ## What it can do
 
-- Accept a natural-language coding task through a one-shot CLI or persistent terminal interface.
+- Accept a natural-language coding task through the persistent terminal interface.
 - Call DeepSeek directly with `fetch`, without an SDK or agent framework.
 - Read and edit workspace files and run a conservative set of inspection and test commands.
 - Validate every model-supplied tool call before execution.
@@ -97,42 +97,47 @@ file as a credential. `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, and
 without restarting the TUI. API keys are never rendered in the interface,
 traces, or replay output.
 
-## One-shot CLI
+## Interactive CLI
 
-Run one task:
-
-```bash
-npm start -- "Read package.json and report the package name. Do not edit files."
-```
-
-A successful result includes the answer, model-step count, trace ID, and trace path:
-
-```json
-{
-  "ok": true,
-  "status": "done",
-  "answer": "The package name is itemd.",
-  "steps": 2,
-  "traceId": "7a207062-1f03-427e-a06a-4bdd48a75d5b",
-  "tracePath": ".itemd/traces/7a207062-1f03-427e-a06a-4bdd48a75d5b.jsonl"
-}
-```
-
-Replay the run:
+Start the OpenTUI interface:
 
 ```bash
-npm start -- --replay 7a207062-1f03-427e-a06a-4bdd48a75d5b
+npm start
 ```
 
-Replay is read-only: it does not contact DeepSeek or execute recorded tools.
+The one-shot runner remains available through its exported functions for tests;
+the installed `itemd` executable starts the interactive interface.
+
+Release versions are read from `package.json` and use Semantic Versioning,
+including prereleases such as `1.1.0-beta.1`. Each new version creates a
+matching `v<version>` Git tag before its GitHub Release is published.
+
+## Releases
+
+Pushing to `master` starts the GitHub Actions release workflow. It installs
+dependencies with npm, runs type-checking and tests, then uses Bun only to
+compile the TUI entrypoint into platform-specific standalone binaries:
+
+| Platform | Release asset |
+| --- | --- |
+| Linux x64 | `itemd-linux-x64` |
+| macOS ARM64 | `itemd-macos-arm64` |
+| Windows x64 | `itemd-windows-x64.exe` |
+
+To publish a release, update `package.json` to a new version, for example
+`1.1.0-beta.1`, commit the change, and push it to `master`. The workflow
+creates the matching `v1.1.0-beta.1` tag, generates GitHub release notes, and
+uploads all three binaries. If that tag already exists, no duplicate release
+is created. The binaries start the interactive OpenTUI interface; run
+`itemd --help` for the harmless smoke-test command.
 
 ## Agent flow
 
 ```mermaid
 flowchart TD
     User["Natural-language task"] --> Entry{"Entry point"}
-    Entry -->|One-shot| CLI["main.ts CLI"]
-    Entry -->|Interactive| TUI["src/ui/tui.ts"]
+    Entry -->|Installed CLI| TUI["main.ts OpenTUI entrypoint"]
+    Entry -->|Testing API| CLI["Agent runner exports"]
 
     CLI --> Agent["Agent loop"]
     TUI --> Agent
@@ -237,7 +242,7 @@ Traces are excluded from Git, but they can contain task text, model reasoning, f
 
 ```text
 itemD/
-├── main.ts                         # CLI entrypoint and public exports
+├── main.ts                         # OpenTUI CLI entrypoint and public exports
 ├── src/
 │   ├── agent/
 │   │   ├── runner.ts               # Loop, history, completion, step limit
@@ -261,7 +266,7 @@ itemD/
 │   │   ├── feedback.ts             # Loader and selection-copy feedback
 │   │   ├── opentui.ts              # Full-screen OpenTUI renderer
 │   │   ├── setup.ts                 # Masked, injectable provider setup
-│   │   └── tui.ts                   # TUI entrypoint and line interface
+│   │   └── tui.ts                   # TUI implementation and line interface
 │   └── workspace/
 │       └── files.ts                # Path confinement and file checks
 ├── tests/

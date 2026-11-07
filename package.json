@@ -4,8 +4,8 @@
   "description": "An explicit, replayable TypeScript coding-agent harness.",
   "main": "main.ts",
   "scripts": {
-    "start": "node --env-file=.env main.ts",
-    "tui": "node --disable-warning=ExperimentalWarning --experimental-ffi --env-file-if-exists=.env src/ui/tui.ts",
+    "start": "node --disable-warning=ExperimentalWarning --experimental-ffi --env-file-if-exists=.env main.ts",
+    "tui": "npm start",
     "check": "npm run typecheck && npm test",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

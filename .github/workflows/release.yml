@@ -1,0 +1,212 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26.4.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+  build-linux:
+    name: Build Linux x64
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26.4.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set up Bun compiler
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Build binary
+        run: |
+          node -e "require('node:fs').mkdirSync('dist', { recursive: true })"
+          bun build --compile ./main.ts --target bun-linux-x64 --outfile ./dist/itemd-linux-x64 --define process.env.OPENTUI_LIBC:'"glibc"'
+
+      - name: Smoke test binary
+        run: ./dist/itemd-linux-x64 --help
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: itemd-linux-x64
+          path: dist/itemd-linux-x64
+          if-no-files-found: error
+
+  build-macos:
+    name: Build macOS ARM64
+    needs: verify
+    runs-on: macos-14
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26.4.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set up Bun compiler
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Build binary
+        run: |
+          node -e "require('node:fs').mkdirSync('dist', { recursive: true })"
+          bun build --compile ./main.ts --target bun-darwin-arm64 --outfile ./dist/itemd-macos-arm64
+
+      - name: Smoke test binary
+        run: ./dist/itemd-macos-arm64 --help
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: itemd-macos-arm64
+          path: dist/itemd-macos-arm64
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows x64
+    needs: verify
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26.4.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set up Bun compiler
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Build binary
+        shell: pwsh
+        run: |
+          node -e "require('node:fs').mkdirSync('dist', { recursive: true })"
+          bun build --compile ./main.ts --target bun-windows-x64 --outfile ./dist/itemd-windows-x64.exe
+
+      - name: Smoke test binary
+        shell: pwsh
+        run: .\dist\itemd-windows-x64.exe --help
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: itemd-windows-x64
+          path: dist/itemd-windows-x64.exe
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs:
+      - build-linux
+      - build-macos
+      - build-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Read version and check tag
+        id: tag-check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(node -e "const fs = require('node:fs'); const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')); process.stdout.write(pkg.version);")"
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "package.json version must be valid SemVer; received: $VERSION" >&2
+            exit 1
+          fi
+
+          TAG="v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
+            echo "tag-exists=true" >> "$GITHUB_OUTPUT"
+            echo "$TAG already exists; release creation will be skipped."
+          else
+            echo "tag-exists=false" >> "$GITHUB_OUTPUT"
+            echo "$TAG does not exist; release creation will continue."
+          fi
+
+      - name: Create tag
+        if: steps.tag-check.outputs.tag-exists != 'true'
+        env:
+          TAG: ${{ steps.tag-check.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" "$GITHUB_SHA" -m "Release $TAG"
+          git push origin "refs/tags/$TAG"
+
+      - name: Create GitHub Release
+        if: steps.tag-check.outputs.tag-exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag-check.outputs.tag }}
+        run: |
+          gh release create "$TAG" \
+            dist/itemd-linux-x64 \
+            dist/itemd-macos-arm64 \
+            dist/itemd-windows-x64.exe \
+            --title "itemD $TAG" \
+            --generate-notes
