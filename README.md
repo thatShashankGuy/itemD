@@ -1,33 +1,72 @@
 # itemD
 
-![Just one more commit ! ](/assets/Just_One_More_Commit.png)
-
-itemD is a small coding-agent harness that keeps the runtime around the model visible: model calls, tool requests, validation, command execution, workspace boundaries, failures, step limits, and traces.
+itemD is a framework-light TypeScript and Node.js coding-agent harness that
+keeps the runtime around the model visible: model calls, tool requests,
+validation, command execution, workspace boundaries, failures, step limits, and
+traces.
 
 The model proposes actions. Deterministic harness code validates and executes them.
 
-## What it can do
-
-- Accept a natural-language coding task through the persistent terminal interface.
-- Call DeepSeek directly with `fetch`, without an SDK or agent framework.
-- Read and edit workspace files and run a conservative set of inspection and test commands.
-- Validate every model-supplied tool call before execution.
-- Execute multiple tool calls from one model turn in deterministic order.
-- Return tool failures to the model as observations so it can recover.
-- Stop on an explicit `DONE:` response or after 50 model steps.
-- Record model calls, tool calls, results, errors, durations, and final status as JSONL.
-- Replay a previous run without calling the model or executing tools.
-
-## Requirements
-
-- Node.js 26.4 or newer (OpenTUI's Node runtime uses experimental FFI).
-- A DeepSeek API key.
-
-OpenTUI Core provides the native terminal renderer. TypeScript, Node type definitions, and Vitest are development dependencies used for verification.
-
 ## Setup
 
-Install the development tooling:
+Choose one of these installation paths:
+
+- **Standalone release:** no Node.js, Bun, npm, or source checkout is required.
+- **Development checkout:** requires Node.js 26.4 or newer and npm.
+
+In both cases, itemD requires a DeepSeek API key.
+
+### Standalone release
+
+Download the asset for your platform from the
+[latest GitHub Release](https://github.com/thatShashankGuy/itemD/releases/latest).
+
+Linux x64:
+
+```bash
+mkdir -p "$HOME/.local/bin"
+curl -fL https://github.com/thatShashankGuy/itemD/releases/latest/download/itemd-linux-x64 \
+  -o "$HOME/.local/bin/itemd"
+chmod +x "$HOME/.local/bin/itemd"
+export PATH="$HOME/.local/bin:$PATH"
+itemd --help
+itemd
+```
+
+macOS ARM64 (Apple Silicon):
+
+```bash
+mkdir -p "$HOME/.local/bin"
+curl -fL https://github.com/thatShashankGuy/itemD/releases/latest/download/itemd-macos-arm64 \
+  -o "$HOME/.local/bin/itemd"
+chmod +x "$HOME/.local/bin/itemd"
+export PATH="$HOME/.local/bin:$PATH"
+itemd --help
+itemd
+```
+
+Add `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc`, `~/.zshrc`, or the
+startup file for the shell you use to keep the command available in new
+terminals. The initial release does not include an Intel macOS binary.
+
+Windows x64 PowerShell:
+
+```powershell
+$installDir = Join-Path $env:LOCALAPPDATA "itemd"
+New-Item -ItemType Directory -Force $installDir | Out-Null
+Invoke-WebRequest `
+  -Uri "https://github.com/thatShashankGuy/itemD/releases/latest/download/itemd-windows-x64.exe" `
+  -OutFile (Join-Path $installDir "itemd.exe")
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+[Environment]::SetEnvironmentVariable("Path", "$userPath;$installDir", "User")
+$env:Path = "$installDir;$env:Path"
+itemd.exe --help
+itemd.exe
+```
+
+### Development checkout
+
+Install the development dependencies:
 
 ```bash
 npm install
@@ -48,17 +87,25 @@ Type-check every module and run the boundary tests without making a model reques
 npm run check
 ```
 
-## Terminal interface
+### First launch and configuration
 
-Start the interactive interface:
+On first launch, select the DeepSeek provider, model, and reasoning effort,
+then enter the API key through the masked setup prompt. The configuration is
+stored in the user-level itemD configuration directory. Alternatively, set
+`DEEPSEEK_API_KEY` in the environment before starting itemD; environment
+settings override the stored configuration.
+
+## Usage
+
+Start the installed binary:
 
 ```bash
-npm run tui
+itemd
 ```
 
-On first use, select a provider, model, and reasoning effort, then enter the
-DeepSeek API key through the masked prompt. The full-screen interface opens
-after setup. Enter a coding task in the bottom input:
+For a development checkout, use `npm start` or `npm run tui`. On first use,
+select a provider, model, and reasoning effort, then enter the DeepSeek API key
+through the masked prompt. Enter a coding task in the bottom input:
 
 ```text
 itemD> inspect the failing tests and make the smallest focused fix
@@ -97,22 +144,11 @@ file as a credential. `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, and
 without restarting the TUI. API keys are never rendered in the interface,
 traces, or replay output.
 
-## Interactive CLI
-
-Start the OpenTUI interface:
-
-```bash
-npm start
-```
-
-The one-shot runner remains available through its exported functions for tests;
-the installed `itemd` executable starts the interactive interface.
+## Releases
 
 Release versions are read from `package.json` and use Semantic Versioning,
 including prereleases such as `1.1.0-beta.1`. Each new version creates a
 matching `v<version>` Git tag before its GitHub Release is published.
-
-## Releases
 
 Pushing to `master` starts the GitHub Actions release workflow. It installs
 dependencies with npm, runs type-checking and tests, then uses Bun only to
