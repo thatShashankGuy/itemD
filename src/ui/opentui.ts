@@ -24,7 +24,10 @@ import {
 } from "../config/configuration.ts";
 import type { ModelAdapter } from "../model/adapter.ts";
 import { createModelAdapter } from "../model/factory.ts";
-import { getErrorMessage } from "../shared/runtime.ts";
+import {
+  getErrorMessage,
+  isStandaloneExecutable,
+} from "../shared/runtime.ts";
 import { listTraces, replayTrace } from "../telemetry/trace.ts";
 import {
   formatTuiCommandHelp,
@@ -129,12 +132,7 @@ const KEYBOARD_HELP =
 const LOGO_ASSET_NAME = "Just_One_More_Commit.png";
 
 function logoSource(): URL {
-  const bun = (
-    globalThis as {
-      Bun?: { isStandaloneExecutable?: boolean };
-    }
-  ).Bun;
-  const assetPath = bun?.isStandaloneExecutable === true
+  const assetPath = isStandaloneExecutable()
     ? `assets/${LOGO_ASSET_NAME}`
     : `../../assets/${LOGO_ASSET_NAME}`;
 
