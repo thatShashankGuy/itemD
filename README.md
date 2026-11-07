@@ -149,7 +149,7 @@ traces, or replay output.
 ## Releases
 
 Release versions are read from `package.json` and use Semantic Versioning,
-including prereleases such as `1.1.0-beta.1`. Each new version creates a
+including prereleases such as `0.1.0-beta.1`. Each new version creates a
 matching `v<version>` Git tag before its GitHub Release is published.
 
 Pushing to `master` starts the GitHub Actions release workflow. It installs
@@ -163,8 +163,8 @@ compile the TUI entrypoint into platform-specific standalone binaries:
 | Windows x64 | `itemd-windows-x64.exe` |
 
 To publish a release, update `package.json` to a new version, for example
-`1.1.0-beta.1`, commit the change, and push it to `master`. The workflow
-creates the matching `v1.1.0-beta.1` tag, generates GitHub release notes, and
+`0.1.0-beta.1`, commit the change, and push it to `master`. The workflow
+creates the matching `v0.1.0-beta.1` tag, generates GitHub release notes, and
 uploads all three binaries. If that tag already exists, no duplicate release
 is created. The binaries start the interactive OpenTUI interface; run
 `itemd --help` for the harmless smoke-test command.
