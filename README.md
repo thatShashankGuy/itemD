@@ -321,17 +321,6 @@ itemD/
 
 The core remains framework-light: plain functions, explicit types, Node.js built-ins, and no classes.
 
-## Completed learning slices
-
-1. Command execution with structured results.
-2. Explicit `read_file`, `edit_file`, and `shell` contracts.
-3. Workspace confinement, command policy, timeouts, and output bounds.
-4. DeepSeek model boundary and runtime response parsing.
-5. Multi-turn agent loop, tool-failure recovery, and explicit completion.
-6. JSONL tracing and read-only replay.
-
-The dependency-free terminal interface was added after the six core learning slices.
-
 ## Current limitations
 
 - The command allowlist is intentionally narrow.
