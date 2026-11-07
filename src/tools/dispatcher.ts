@@ -134,6 +134,7 @@ async function executeEditFile(
 async function executeShell(
   call: Extract<ToolCall, { type: "shell" }>,
   workspaceRoot: string,
+  signal?: AbortSignal,
 ): Promise<ToolResult<CommandResult>> {
   const policy = validateShellPolicy(call);
 
@@ -145,18 +146,27 @@ async function executeShell(
     call.executable,
     call.args,
     workspaceRoot,
+    COMMAND_TIMEOUT_MS,
+    undefined,
+    signal,
   );
 
   if (!result.ok) {
     return {
       ok: false,
       error: {
-        code: result.timedOut ? "COMMAND_TIMED_OUT" : "COMMAND_FAILED",
-        message: result.timedOut
-          ? `Command exceeded ${COMMAND_TIMEOUT_MS}ms`
-          : result.error?.message ||
-            result.stderr ||
-            `Command exited with code ${result.exitCode}`,
+        code: result.cancelled
+          ? "COMMAND_CANCELLED"
+          : result.timedOut
+            ? "COMMAND_TIMED_OUT"
+            : "COMMAND_FAILED",
+        message: result.cancelled
+          ? "Command cancelled"
+          : result.timedOut
+            ? `Command exceeded ${COMMAND_TIMEOUT_MS}ms`
+            : result.error?.message ||
+              result.stderr ||
+              `Command exited with code ${result.exitCode}`,
         details: result,
       },
     };
@@ -173,6 +183,7 @@ async function executeShell(
 export async function executeTool(
   input: unknown,
   workspaceRoot: string,
+  signal?: AbortSignal,
 ): Promise<ToolResult> {
   const validation = validateToolCall(input);
 
@@ -188,6 +199,6 @@ export async function executeTool(
       return executeEditFile(validation.call, workspaceRoot);
 
     case "shell":
-      return executeShell(validation.call, workspaceRoot);
+      return executeShell(validation.call, workspaceRoot, signal);
   }
 }

@@ -32,6 +32,7 @@ export type ToolError = {
     | "FILE_TOO_LARGE"
     | "COMMAND_FAILED"
     | "COMMAND_DENIED"
+    | "COMMAND_CANCELLED"
     | "COMMAND_TIMED_OUT"
     | "PATH_OUTSIDE_WORKSPACE"
     | "PATH_BLOCKED"

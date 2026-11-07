@@ -5,7 +5,7 @@
   "main": "main.ts",
   "scripts": {
     "start": "node --env-file=.env main.ts",
-    "tui": "node --env-file=.env src/ui/tui.ts",
+    "tui": "node --disable-warning=ExperimentalWarning --experimental-ffi --env-file-if-exists=.env src/ui/tui.ts",
     "check": "npm run typecheck && npm test",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -25,5 +25,8 @@
     "@types/node": "^26.6.6",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.8.3"
   }
 }

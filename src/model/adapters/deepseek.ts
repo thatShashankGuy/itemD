@@ -319,11 +319,18 @@ export function createDeepSeekAdapter(
       model: options.model,
       effort: options.effort,
     },
-    async call(history: readonly ModelMessage[]): Promise<ModelCallResult> {
+    async call(
+      history: readonly ModelMessage[],
+      signal?: AbortSignal,
+    ): Promise<ModelCallResult> {
       const controller = new AbortController();
       const timeout = setTimeout(() => {
         controller.abort();
       }, MODEL_TIMEOUT_MS);
+      const requestSignal =
+        signal === undefined
+          ? controller.signal
+          : AbortSignal.any([controller.signal, signal]);
 
       try {
         const response = await fetchImplementation(ENDPOINT, {
@@ -346,7 +353,7 @@ export function createDeepSeekAdapter(
               ? {}
               : { reasoning_effort: options.effort }),
           }),
-          signal: controller.signal,
+          signal: requestSignal,
         });
 
         if (!response.ok) {
@@ -389,7 +396,9 @@ export function createDeepSeekAdapter(
       } catch (error: unknown) {
         const message =
           error instanceof Error && error.name === "AbortError"
-            ? `DeepSeek request exceeded ${MODEL_TIMEOUT_MS}ms`
+            ? signal?.aborted
+              ? "DeepSeek request cancelled"
+              : `DeepSeek request exceeded ${MODEL_TIMEOUT_MS}ms`
             : getErrorMessage(error);
 
         return {

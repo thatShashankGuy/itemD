@@ -5,6 +5,10 @@ export type AgentError =
   | {
       code: "MAX_STEPS_REACHED";
       message: string;
+    }
+  | {
+      code: "RUN_CANCELLED";
+      message: string;
     };
 
 export type AgentRunResult =
@@ -18,7 +22,7 @@ export type AgentRunResult =
     }
   | {
       ok: false;
-      status: "failed" | "max_steps";
+      status: "failed" | "max_steps" | "cancelled";
       steps: number;
       error: AgentError;
       traceId: string;

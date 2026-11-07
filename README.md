@@ -1,6 +1,6 @@
 # itemD
 
-itemD is a small, dependency-free TypeScript coding-agent harness that keeps the runtime around the model visible: model calls, tool requests, validation, command execution, workspace boundaries, failures, step limits, and traces.
+itemD is a small TypeScript coding-agent harness that keeps the runtime around the model visible: model calls, tool requests, validation, command execution, workspace boundaries, failures, step limits, and traces.
 
 The model proposes actions. Deterministic harness code validates and executes them.
 
@@ -18,10 +18,10 @@ The model proposes actions. Deterministic harness code validates and executes th
 
 ## Requirements
 
-- A recent Node.js release with native erasable TypeScript support and `--env-file`.
+- Node.js 26.4 or newer (OpenTUI's Node runtime uses experimental FFI).
 - A DeepSeek API key.
 
-There are no runtime dependencies. TypeScript, Node type definitions, and Vitest are development dependencies used for verification.
+OpenTUI Core provides the native terminal renderer. TypeScript, Node type definitions, and Vitest are development dependencies used for verification.
 
 ## Setup
 
@@ -54,20 +54,40 @@ Start the interactive interface:
 npm run tui
 ```
 
-Enter a coding task at the prompt:
+On first use, select a provider, model, and reasoning effort, then enter the
+DeepSeek API key through the masked prompt. The full-screen interface opens
+after setup. Enter a coding task in the bottom input:
 
 ```text
 itemD> inspect the failing tests and make the smallest focused fix
 ```
 
 Each submitted task starts an independent agent run with its own history and trace.
+The transcript supports the mouse wheel, Page Up/Down, and Ctrl+Up/Down. Type
+`/` to open the command palette; use Up/Down to select and Tab or Enter to
+complete a command. Drag across transcript text to copy it; the footer confirms
+the number of characters copied. While an agent task is active, the header
+shows an animated loader and Escape stops the task.
 
 | Command | Behavior |
 | --- | --- |
 | `/help` | Show available commands |
+| `/config` | Show the active provider, model, and effort |
+| `/reload` | Reload the API key and model settings from config/environment |
+| `/setup` | Reconfigure provider, model, effort, and API key |
+| `/adapter` | Select an adapter; alias for `/setup` |
+| `/replays` | List recorded runs |
 | `/replay <trace-id>` | Display a recorded run without executing it |
 | `/clear` | Clear the terminal |
 | `/quit` or `/exit` | Exit the interface |
+
+The saved configuration lives outside the workspace in the user-level itemD
+configuration directory (or at `ITEMD_CONFIG_PATH`) and is written with
+user-only permissions where supported. It contains the API key, so treat that
+file as a credential. `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, and
+`DEEPSEEK_REASONING_EFFORT` override saved values; `/reload` applies changes
+without restarting the TUI. API keys are never rendered in the interface,
+traces, or replay output.
 
 ## One-shot CLI
 
@@ -229,7 +249,11 @@ itemD/
 │   │   ├── contracts.ts            # Tool types and runtime validation
 │   │   └── dispatcher.ts           # Tool implementations and dispatch
 │   ├── ui/
-│   │   └── tui.ts                  # Interactive terminal adapter
+│   │   ├── commands.ts             # Slash command catalog and discovery
+│   │   ├── feedback.ts             # Loader and selection-copy feedback
+│   │   ├── opentui.ts              # Full-screen OpenTUI renderer
+│   │   ├── setup.ts                 # Masked, injectable provider setup
+│   │   └── tui.ts                   # TUI entrypoint and line interface
 │   └── workspace/
 │       └── files.ts                # Path confinement and file checks
 ├── tests/
@@ -238,7 +262,7 @@ itemD/
 ├── package-lock.json               # Reproducible tool versions
 ├── tsconfig.json                   # Strict TypeScript configuration
 ├── README.md                       # Project documentation
-├── current-slice.tmp               # Ignored learning reference
+├── feature-tracker.md              # Unfinished work and future pipeline
 ├── .env                            # Ignored DeepSeek configuration
 └── .itemd/
     └── traces/                     # Ignored runtime JSONL traces

@@ -1,6 +1,5 @@
 .env
 .zed/
-current-slice.tmp
 .itemd/
 .harness/
 node_modules/

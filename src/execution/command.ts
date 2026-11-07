@@ -14,6 +14,7 @@ export type CommandResult = {
   durationMs: number;
   cwd: string;
   timedOut: boolean;
+  cancelled: boolean;
   stdoutTruncated: boolean;
   stderrTruncated: boolean;
   error?: {
@@ -57,8 +58,25 @@ export function executeCommand(
   cwd: string,
   timeoutMs = COMMAND_TIMEOUT_MS,
   outputLimit = MAX_OUTPUT_CHARS,
+  signal?: AbortSignal,
 ): Promise<CommandResult> {
   const startedAt = Date.now();
+
+  if (signal?.aborted) {
+    return Promise.resolve({
+      ok: false,
+      stdout: "",
+      stderr: "",
+      exitCode: null,
+      signal: null,
+      durationMs: 0,
+      cwd,
+      timedOut: false,
+      cancelled: true,
+      stdoutTruncated: false,
+      stderrTruncated: false,
+    });
+  }
 
   return new Promise<CommandResult>((resolveResult) => {
     const child = spawn(executable, args, {
@@ -71,20 +89,34 @@ export function executeCommand(
     let stdoutTruncated = false;
     let stderrTruncated = false;
     let timedOut = false;
+    let cancelled = false;
     let settled = false;
     let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const timeoutTimer = setTimeout(() => {
-      timedOut = true;
+    function terminateChild(): void {
       child.kill("SIGTERM");
 
-      forceKillTimer = setTimeout(() => {
-        child.kill("SIGKILL");
-      }, FORCE_KILL_DELAY_MS);
+      if (forceKillTimer === undefined) {
+        forceKillTimer = setTimeout(() => {
+          child.kill("SIGKILL");
+        }, FORCE_KILL_DELAY_MS);
+      }
+    }
+
+    const timeoutTimer = setTimeout(() => {
+      timedOut = true;
+      terminateChild();
     }, timeoutMs);
+    const abortHandler = (): void => {
+      cancelled = true;
+      terminateChild();
+    };
+
+    signal?.addEventListener("abort", abortHandler, { once: true });
 
     function clearTimers(): void {
       clearTimeout(timeoutTimer);
+      signal?.removeEventListener("abort", abortHandler);
 
       if (forceKillTimer !== undefined) {
         clearTimeout(forceKillTimer);
@@ -120,6 +152,7 @@ export function executeCommand(
         durationMs: Date.now() - startedAt,
         cwd,
         timedOut,
+        cancelled,
         stdoutTruncated,
         stderrTruncated,
         error: {
@@ -138,7 +171,7 @@ export function executeCommand(
       clearTimers();
 
       resolveResult({
-        ok: exitCode === 0 && !timedOut,
+        ok: exitCode === 0 && !timedOut && !cancelled,
         stdout,
         stderr,
         exitCode,
@@ -146,6 +179,7 @@ export function executeCommand(
         durationMs: Date.now() - startedAt,
         cwd,
         timedOut,
+        cancelled,
         stdoutTruncated,
         stderrTruncated,
       });

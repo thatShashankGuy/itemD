@@ -228,7 +228,7 @@ describe("TUI configuration flow", () => {
       env: {},
     });
     const io = new FakeTuiIO([
-      "/setup",
+      "/adapter",
       "1",
       "2",
       "1",
@@ -252,6 +252,25 @@ describe("TUI configuration flow", () => {
       },
     });
     expect(io.text()).not.toContain("replacement-secret");
+  });
+
+  test("reloads the active configuration without exposing its key", async () => {
+    const { workspace, configPath } = await createTemporaryPaths();
+    await writeConfiguration(storedConfiguration("reload-secret"), {
+      configPath,
+      env: {},
+    });
+    const io = new FakeTuiIO(["/reload", "/quit"]);
+
+    await runTui({
+      io,
+      workspaceRoot: workspace,
+      config: { configPath, env: {} },
+    });
+
+    expect(io.text()).toContain("Configuration reloaded.");
+    expect(io.text()).toContain("model: deepseek-flash");
+    expect(io.text()).not.toContain("reload-secret");
   });
 
   test("recovers from malformed stored configuration through setup", async () => {

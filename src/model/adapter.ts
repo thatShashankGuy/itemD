@@ -7,7 +7,10 @@ import type {
 
 export interface ModelAdapter {
   readonly metadata: ModelMetadata;
-  call(history: readonly ModelMessage[]): Promise<ModelCallResult>;
+  call(
+    history: readonly ModelMessage[],
+    signal?: AbortSignal,
+  ): Promise<ModelCallResult>;
 }
 
 export type ModelAdapterConfiguration = {

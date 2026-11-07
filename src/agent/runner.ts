@@ -17,6 +17,11 @@ const DONE_PREFIX = "DONE:";
 
 export type { AgentRunResult } from "./types.ts";
 
+export type AgentRunOptions = {
+  maxSteps?: number;
+  signal?: AbortSignal;
+};
+
 function getDoneAnswer(text: string): string | undefined {
   const trimmed = text.trim();
 
@@ -42,12 +47,34 @@ async function finishAgentRun(
   return result;
 }
 
+function finishCancelledRun(
+  trace: TraceWriter,
+  steps: number,
+): Promise<AgentRunResult> {
+  return finishAgentRun(trace, {
+    ok: false,
+    status: "cancelled",
+    steps,
+    error: {
+      code: "RUN_CANCELLED",
+      message: "Task stopped by user",
+    },
+    traceId: trace.id,
+    tracePath: trace.relativePath,
+  });
+}
+
 export async function runAgent(
   task: string,
   adapter: ModelAdapter,
   workspaceRoot: string,
-  maxSteps = MAX_AGENT_STEPS,
+  options: number | AgentRunOptions = {},
 ): Promise<AgentRunResult> {
+  const maxSteps =
+    typeof options === "number"
+      ? options
+      : options.maxSteps ?? MAX_AGENT_STEPS;
+  const signal = typeof options === "number" ? undefined : options.signal;
   const messages = createModelHistory(task);
   const trace = await createTraceWriter(workspaceRoot);
 
@@ -59,10 +86,18 @@ export async function runAgent(
     maxSteps,
   });
 
+  if (signal?.aborted) {
+    return finishCancelledRun(trace, 0);
+  }
+
   for (let step = 1; step <= maxSteps; step += 1) {
+    if (signal?.aborted) {
+      return finishCancelledRun(trace, step - 1);
+    }
+
     const modelStartedAt = Date.now();
     const modelInput = structuredClone(messages);
-    const modelResult = await adapter.call(messages);
+    const modelResult = await adapter.call(messages, signal);
 
     await writeTraceEvent(trace, {
       type: "model_call",
@@ -72,6 +107,10 @@ export async function runAgent(
       messages: modelInput,
       result: modelResult,
     });
+
+    if (signal?.aborted) {
+      return finishCancelledRun(trace, step);
+    }
 
     if (!modelResult.ok) {
       return finishAgentRun(trace, {
@@ -105,10 +144,15 @@ export async function runAgent(
     }
 
     for (const action of modelResult.action.calls) {
+      if (signal?.aborted) {
+        return finishCancelledRun(trace, step);
+      }
+
       const toolStartedAt = Date.now();
       const toolResult = await executeTool(
         action.call,
         workspaceRoot,
+        signal,
       );
 
       await writeTraceEvent(trace, {
@@ -119,6 +163,10 @@ export async function runAgent(
         request: action.call,
         result: toolResult,
       });
+
+      if (signal?.aborted) {
+        return finishCancelledRun(trace, step);
+      }
 
       messages.push(
         createToolResultMessage(action, toolResult),

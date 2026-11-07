@@ -68,7 +68,7 @@ User task
 ## Current Next Slice: Provider Setup and Adapters
 
 The active slice is TUI onboarding and a provider-neutral model-adapter
-boundary. Implement it one checkpoint at a time using `current-slice.tmp` as the
+boundary. Implement it one checkpoint at a time using `feature-tracker.md` as the
 acceptance plan.
 
 Progress through this slice:
