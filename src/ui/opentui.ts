@@ -538,18 +538,24 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     updateHeader();
   };
 
-  const clearTranscript = (): void => {
+  const resetTranscript = (message: string): void => {
     for (const child of transcript.getChildren()) {
       child.destroyRecursively();
     }
 
     transcriptEntries.length = 0;
 
-    appendLog(
-      "",
+    appendLog("", message, COLORS.muted);
+  };
+
+  const clearTranscript = (): void => {
+    resetTranscript(
       "itemD is ready. Type / to inspect commands or enter a coding task.",
-      COLORS.muted,
     );
+  };
+
+  const startNewSession = (): void => {
+    resetTranscript("New session started. Active configuration retained.");
   };
 
   const updateCommandPalette = (value: string): void => {
@@ -790,6 +796,9 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       }
       case "/clear":
         clearTranscript();
+        return;
+      case "/new":
+        startNewSession();
         return;
       case "/theme": {
         const requestedTheme = words[1]?.toLowerCase();
