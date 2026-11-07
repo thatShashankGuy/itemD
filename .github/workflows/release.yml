@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -71,7 +72,7 @@ jobs:
   build-macos:
     name: Build macOS ARM64
     needs: verify
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -146,6 +147,8 @@ jobs:
 
   release:
     name: Create GitHub Release
+    # Manual runs from working branches verify builds without publishing.
+    if: github.ref == 'refs/heads/master'
     needs:
       - build-linux
       - build-macos
