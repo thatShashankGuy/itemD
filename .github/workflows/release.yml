@@ -207,9 +207,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag-check.outputs.tag }}
         run: |
+          release_flags=()
+          if [[ "$TAG" == *-* ]]; then
+            release_flags+=(--prerelease)
+          fi
+
           gh release create "$TAG" \
             dist/itemd-linux-x64 \
             dist/itemd-macos-arm64 \
             dist/itemd-windows-x64.exe \
             --title "itemD $TAG" \
-            --generate-notes
+            --generate-notes \
+            "${release_flags[@]}"
