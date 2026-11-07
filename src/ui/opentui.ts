@@ -126,6 +126,21 @@ const KEYBOARD_HELP =
   "Mouse drag     Select and copy transcript text\n" +
   "Ctrl+C         Exit itemD";
 
+const LOGO_ASSET_NAME = "Just_One_More_Commit.png";
+
+function logoSource(): URL {
+  const bun = (
+    globalThis as {
+      Bun?: { isStandaloneExecutable?: boolean };
+    }
+  ).Bun;
+  const assetPath = bun?.isStandaloneExecutable === true
+    ? `assets/${LOGO_ASSET_NAME}`
+    : `../../assets/${LOGO_ASSET_NAME}`;
+
+  return new URL(assetPath, import.meta.url);
+}
+
 type OpenTuiOptions = {
   workspaceRoot: string;
   config: ConfigurationOptions;
@@ -278,7 +293,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   });
   const logo = new ImageRenderable(renderer, {
     id: "logo",
-    source: new URL("../../assets/Just_One_More_Commit.png", import.meta.url),
+    source: logoSource(),
     width: 8,
     height: 3,
     fit: "fill",
