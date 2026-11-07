@@ -57,7 +57,7 @@ jobs:
       - name: Build binary
         run: |
           node -e "require('node:fs').mkdirSync('dist', { recursive: true })"
-          bun build --compile ./main.ts --target bun-linux-x64 --outfile ./dist/itemd-linux-x64 --define process.env.OPENTUI_LIBC:'"glibc"'
+          bun build --compile ./main.ts --asset ./assets --target bun-linux-x64 --outfile ./dist/itemd-linux-x64 --define process.env.OPENTUI_LIBC:'"glibc"'
 
       - name: Smoke test binary
         run: ./dist/itemd-linux-x64 --help
@@ -94,7 +94,7 @@ jobs:
       - name: Build binary
         run: |
           node -e "require('node:fs').mkdirSync('dist', { recursive: true })"
-          bun build --compile ./main.ts --target bun-darwin-arm64 --outfile ./dist/itemd-macos-arm64
+          bun build --compile ./main.ts --asset ./assets --target bun-darwin-arm64 --outfile ./dist/itemd-macos-arm64
 
       - name: Smoke test binary
         run: ./dist/itemd-macos-arm64 --help
@@ -132,7 +132,7 @@ jobs:
         shell: pwsh
         run: |
           node -e "require('node:fs').mkdirSync('dist', { recursive: true })"
-          bun build --compile ./main.ts --target bun-windows-x64 --outfile ./dist/itemd-windows-x64.exe
+          bun build --compile ./main.ts --asset ./assets --target bun-windows-x64 --outfile ./dist/itemd-windows-x64.exe
 
       - name: Smoke test binary
         shell: pwsh
