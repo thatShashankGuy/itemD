@@ -5,7 +5,10 @@ import {
   createModelHistory,
   createToolResultMessage,
 } from "../model/history.ts";
-import { executeTool } from "../tools/dispatcher.ts";
+import {
+  executeTool,
+  type ToolExecutionOptions,
+} from "../tools/dispatcher.ts";
 import {
   createTraceWriter,
   type TraceWriter,
@@ -20,6 +23,14 @@ export type { AgentRunResult } from "./types.ts";
 export type AgentRunOptions = {
   maxSteps?: number;
   signal?: AbortSignal;
+  tools?: ToolExecutionOptions;
+  onEvent?: (event: AgentRunEvent) => void | Promise<void>;
+};
+
+export type AgentRunEvent = {
+  type: "reasoning";
+  step: number;
+  text: string;
 };
 
 function getDoneAnswer(text: string): string | undefined {
@@ -75,6 +86,9 @@ export async function runAgent(
       ? options
       : options.maxSteps ?? MAX_AGENT_STEPS;
   const signal = typeof options === "number" ? undefined : options.signal;
+  const toolOptions =
+    typeof options === "number" ? {} : options.tools;
+  const onEvent = typeof options === "number" ? undefined : options.onEvent;
   const messages = createModelHistory(task);
   const trace = await createTraceWriter(workspaceRoot);
 
@@ -123,6 +137,18 @@ export async function runAgent(
       });
     }
 
+    if (
+      onEvent !== undefined &&
+      typeof modelResult.message.reasoning === "string" &&
+      modelResult.message.reasoning.length > 0
+    ) {
+      await onEvent({
+        type: "reasoning",
+        step,
+        text: modelResult.message.reasoning,
+      });
+    }
+
     messages.push(modelResult.message);
 
     if (modelResult.action.type === "final") {
@@ -153,6 +179,7 @@ export async function runAgent(
         action.call,
         workspaceRoot,
         signal,
+        toolOptions,
       );
 
       await writeTraceEvent(trace, {

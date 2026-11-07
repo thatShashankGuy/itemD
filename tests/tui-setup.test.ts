@@ -110,6 +110,8 @@ describe("TUI setup", () => {
       "2",
       "4",
       "new-secret",
+      "y",
+      "serper-secret",
     ]);
 
     const result = await runSetup(io, {
@@ -120,12 +122,16 @@ describe("TUI setup", () => {
     expect(result).toEqual({ status: "saved" });
     expect(io.text()).toContain("OpenAI: Coming soon");
     expect(
-      io.questions.filter(({ prompt }) => prompt === "Provider: "),
+      io.questions.filter(({ prompt }) => prompt === "Provider:  [1]: "),
     ).toHaveLength(2);
     expect(
-      io.questions.find(({ prompt }) => prompt === "API key: ")?.options,
+      io.questions.find(({ prompt }) => prompt === "Model API key: ")?.options,
+    ).toEqual({ masked: true });
+    expect(
+      io.questions.find(({ prompt }) => prompt === "Serper API key: ")?.options,
     ).toEqual({ masked: true });
     expect(io.text()).not.toContain("new-secret");
+    expect(io.text()).not.toContain("serper-secret");
 
     const saved = await readConfiguration({ configPath, env: {} });
     expect(saved).toMatchObject({
@@ -134,6 +140,10 @@ describe("TUI setup", () => {
         model: "deepseek-v4-pro",
         effort: "max",
         apiKey: "new-secret",
+        webSearch: {
+          enabled: true,
+          serperApiKey: "serper-secret",
+        },
       },
     });
   });
@@ -173,6 +183,41 @@ describe("TUI setup", () => {
       configuration: storedConfiguration(),
     });
   });
+
+  test("keeps current choices and credentials when Enter is pressed", async () => {
+    const { configPath } = await createTemporaryPaths();
+    await writeConfiguration(
+      {
+        ...storedConfiguration(),
+        webSearch: {
+          enabled: true,
+          serperApiKey: "serper-secret",
+        },
+      },
+      { configPath, env: {} },
+    );
+    const io = new FakeTuiIO(["", "", "", "", "", ""]);
+
+    await expect(
+      runSetup(io, { configPath, env: {} }),
+    ).resolves.toEqual({ status: "saved" });
+
+    const stored = await readConfiguration({ configPath, env: {} });
+    expect(stored).toMatchObject({
+      ok: true,
+      configuration: {
+        model: "deepseek-flash",
+        effort: "high",
+        apiKey: "working-secret",
+        webSearch: {
+          enabled: true,
+          serperApiKey: "serper-secret",
+        },
+      },
+    });
+    expect(io.text()).not.toContain("working-secret");
+    expect(io.text()).not.toContain("serper-secret");
+  });
 });
 
 describe("TUI configuration flow", () => {
@@ -183,6 +228,7 @@ describe("TUI configuration flow", () => {
       "1",
       "3",
       "first-secret",
+      "n",
       "/config",
       "/quit",
     ]);
@@ -233,6 +279,7 @@ describe("TUI configuration flow", () => {
       "2",
       "1",
       "replacement-secret",
+      "n",
       "/quit",
     ]);
 
@@ -282,6 +329,7 @@ describe("TUI configuration flow", () => {
       "1",
       "3",
       "recovered-secret",
+      "n",
       "/quit",
     ]);
 
@@ -312,6 +360,7 @@ describe("TUI configuration flow", () => {
     );
     const io = new FakeTuiIO([
       "/replays",
+      "1",
       `/replay ${traceId}`,
       "exit()",
     ]);
@@ -323,7 +372,7 @@ describe("TUI configuration flow", () => {
     });
 
     expect(io.closed).toBe(true);
-    expect(io.text()).toContain("Recorded runs (newest first):");
+    expect(io.text()).toContain("Select a replay (newest first):");
     expect(io.text()).toContain(traceId);
     expect(io.text()).toContain('"task": "example"');
     expect(io.text()).toContain("Goodbye.");

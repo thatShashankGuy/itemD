@@ -117,6 +117,42 @@ const DEEPSEEK_TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "web_search",
+      description:
+        "Search the public web and return up to five concise results. Use web_fetch to inspect an authoritative result.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "A focused web search query.",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "web_fetch",
+      description:
+        "Fetch bounded text from one public http or https URL returned by web_search.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: {
+            type: "string",
+            description: "The public URL to inspect.",
+          },
+        },
+        required: ["url"],
+      },
+    },
+  },
 ] as const;
 
 function invalidModelResponse(message: string): ModelCallResult {

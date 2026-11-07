@@ -16,6 +16,11 @@ export const TUI_COMMANDS = [
     description: "Show the active provider, model, and effort",
   },
   {
+    name: "/reasoning",
+    usage: "/reasoning [on|off]",
+    description: "Toggle reasoning in live runs and replay output",
+  },
+  {
     name: "/reload",
     usage: "/reload",
     description: "Reload the API key and model config",
@@ -23,7 +28,7 @@ export const TUI_COMMANDS = [
   {
     name: "/setup",
     usage: "/setup",
-    description: "Reconfigure provider, model, effort, and API key",
+    description: "Reconfigure model and web-search credentials",
   },
   {
     name: "/adapter",
