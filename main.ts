@@ -7,7 +7,9 @@ import {
 } from "./src/agent/runner.ts";
 import {
   DEFAULT_DEEPSEEK_MODEL,
-} from "./src/model/adapters/deepseek.ts";
+  PROVIDER_CATALOG,
+} from "./src/model/catalog.ts";
+import { createModelAdapter } from "./src/model/factory.ts";
 import { getErrorMessage } from "./src/shared/runtime.ts";
 import {
   replayTrace,
@@ -58,11 +60,25 @@ async function main(): Promise<void> {
 
   const model =
     process.env.DEEPSEEK_MODEL ?? DEFAULT_DEEPSEEK_MODEL;
+  const effort =
+    process.env.DEEPSEEK_REASONING_EFFORT ??
+    PROVIDER_CATALOG[0].defaultEffort;
+  const adapterResult = createModelAdapter({
+    provider: "deepseek",
+    model,
+    effort,
+    apiKey,
+  });
+
+  if (!adapterResult.ok) {
+    console.error(adapterResult.error.message);
+    process.exitCode = 1;
+    return;
+  }
 
   const result = await runAgent(
     task,
-    apiKey,
-    model,
+    adapterResult.adapter,
     workspaceRoot,
   );
 

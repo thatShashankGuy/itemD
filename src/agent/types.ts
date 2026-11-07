@@ -1,4 +1,4 @@
-import type { ModelError } from "../model/adapters/deepseek.ts";
+import type { ModelError } from "../model/types.ts";
 
 export type AgentError =
   | ModelError

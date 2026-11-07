@@ -67,9 +67,21 @@ User task
 
 ## Current Next Slice: Provider Setup and Adapters
 
-The next planned slice is TUI onboarding and a provider-neutral model-adapter
+The active slice is TUI onboarding and a provider-neutral model-adapter
 boundary. Implement it one checkpoint at a time using `current-slice.tmp` as the
 acceptance plan.
+
+Progress through this slice:
+
+- Checkpoint A complete: shared provider catalog and validation contracts.
+- Checkpoint B complete: user-level atomic configuration and credential safety.
+- Checkpoint C complete: provider-neutral runner and executable DeepSeek adapter.
+- Checkpoint D complete: first-run/reconfigurable TUI setup with masked key input.
+- Checkpoint E is next: CLI configuration integration, documentation, final
+  verification, and one live read-only DeepSeek run.
+
+The TUI also supports `exit()` for a clean session exit, `/replays` to list
+recorded runs, and `/replay <trace-id>` to inspect one without model access.
 
 Provider availability for this slice:
 

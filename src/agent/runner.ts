@@ -1,11 +1,10 @@
-import {
-  callDeepSeek,
-  createInitialMessages,
-  type Message,
-  type ToolAction,
-} from "../model/adapters/deepseek.ts";
 import type { AgentRunResult } from "./types.ts";
-import type { ToolResult } from "../tools/contracts.ts";
+import type { ModelAdapter } from "../model/adapter.ts";
+import {
+  createContinueMessage,
+  createModelHistory,
+  createToolResultMessage,
+} from "../model/history.ts";
 import { executeTool } from "../tools/dispatcher.ts";
 import {
   createTraceWriter,
@@ -30,30 +29,6 @@ function getDoneAnswer(text: string): string | undefined {
   return answer.length > 0 ? answer : undefined;
 }
 
-function createToolResultMessage(
-  action: ToolAction,
-  result: ToolResult,
-): Message {
-  const response = result.ok
-    ? { output: result.output }
-    : { error: result.error };
-
-  return {
-    role: "tool",
-    tool_call_id: action.id,
-    content: JSON.stringify(response),
-  };
-}
-
-function createContinueMessage(): Message {
-  return {
-    role: "user",
-    content:
-      "Continue working. Request one tool if more work is needed. " +
-      "If the task is complete, reply with DONE: followed by a concise summary.",
-  };
-}
-
 async function finishAgentRun(
   trace: TraceWriter,
   result: AgentRunResult,
@@ -69,30 +44,25 @@ async function finishAgentRun(
 
 export async function runAgent(
   task: string,
-  apiKey: string,
-  model: string,
+  adapter: ModelAdapter,
   workspaceRoot: string,
   maxSteps = MAX_AGENT_STEPS,
 ): Promise<AgentRunResult> {
-  const messages = createInitialMessages(task);
+  const messages = createModelHistory(task);
   const trace = await createTraceWriter(workspaceRoot);
 
   await writeTraceEvent(trace, {
     type: "run_start",
     timestamp: new Date().toISOString(),
     task,
-    model,
+    ...adapter.metadata,
     maxSteps,
   });
 
   for (let step = 1; step <= maxSteps; step += 1) {
     const modelStartedAt = Date.now();
     const modelInput = structuredClone(messages);
-    const modelResult = await callDeepSeek(
-      apiKey,
-      model,
-      messages,
-    );
+    const modelResult = await adapter.call(messages);
 
     await writeTraceEvent(trace, {
       type: "model_call",
@@ -114,8 +84,7 @@ export async function runAgent(
       });
     }
 
-    // Preserve call IDs and reasoning content required by DeepSeek history.
-    messages.push(modelResult.content);
+    messages.push(modelResult.message);
 
     if (modelResult.action.type === "final") {
       const answer = getDoneAnswer(modelResult.action.text);
@@ -151,7 +120,6 @@ export async function runAgent(
         result: toolResult,
       });
 
-      // Every success or failure must match its DeepSeek tool-call ID.
       messages.push(
         createToolResultMessage(action, toolResult),
       );

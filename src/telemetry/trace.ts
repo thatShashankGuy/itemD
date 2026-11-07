@@ -1,9 +1,23 @@
 import { randomUUID } from "node:crypto";
-import { appendFile, mkdir, readFile, realpath, stat } from "node:fs/promises";
+import {
+  appendFile,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  stat,
+} from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentRunResult } from "../agent/types.ts";
-import type { Message, ModelCallResult } from "../model/adapters/deepseek.ts";
-import { getErrorMessage } from "../shared/runtime.ts";
+import type {
+  ModelCallResult,
+  ModelMessage,
+} from "../model/types.ts";
+import type {
+  ProviderId,
+  ReasoningEffort,
+} from "../model/contracts.ts";
+import { getErrorMessage, isRecord } from "../shared/runtime.ts";
 import type { ToolResult } from "../tools/contracts.ts";
 import { isInsideWorkspace } from "../workspace/files.ts";
 
@@ -16,7 +30,9 @@ type TraceEvent =
       type: "run_start";
       timestamp: string;
       task: string;
+      provider: ProviderId;
       model: string;
+      effort: ReasoningEffort;
       maxSteps: number;
     }
   | {
@@ -24,7 +40,7 @@ type TraceEvent =
       timestamp: string;
       step: number;
       durationMs: number;
-      messages: Message[];
+      messages: ModelMessage[];
       result: ModelCallResult;
     }
   | {
@@ -64,6 +80,26 @@ export type ReplayResult =
       };
     };
 
+export type TraceListResult =
+  | {
+      ok: true;
+      traces: Array<{
+        traceId: string;
+        modifiedAt: string;
+      }>;
+    }
+  | {
+      ok: false;
+      error: {
+        code: "TRACE_LIST_FAILED";
+        message: string;
+      };
+    };
+
+function isMissingFileError(error: unknown): boolean {
+  return isRecord(error) && error.code === "ENOENT";
+}
+
 export async function createTraceWriter(
   workspaceRoot: string,
 ): Promise<TraceWriter> {
@@ -102,6 +138,68 @@ export async function writeTraceEvent(
     `${JSON.stringify(event)}\n`,
     "utf8",
   );
+}
+
+export async function listTraces(
+  workspaceRoot: string,
+): Promise<TraceListResult> {
+  try {
+    const traceDirectory = await realpath(
+      join(workspaceRoot, TRACE_DIRECTORY),
+    );
+
+    if (!isInsideWorkspace(workspaceRoot, traceDirectory)) {
+      return {
+        ok: false,
+        error: {
+          code: "TRACE_LIST_FAILED",
+          message: "Trace directory resolves outside the workspace",
+        },
+      };
+    }
+
+    const entries = await readdir(traceDirectory, {
+      withFileTypes: true,
+    });
+    const traces = await Promise.all(
+      entries.flatMap((entry) => {
+        if (!entry.isFile() || !entry.name.endsWith(".jsonl")) {
+          return [];
+        }
+
+        const traceId = entry.name.slice(0, -".jsonl".length);
+
+        if (!TRACE_ID_PATTERN.test(traceId)) {
+          return [];
+        }
+
+        return [
+          stat(join(traceDirectory, entry.name)).then((fileStats) => ({
+            traceId,
+            modifiedAt: fileStats.mtime.toISOString(),
+          })),
+        ];
+      }),
+    );
+
+    traces.sort((left, right) =>
+      right.modifiedAt.localeCompare(left.modifiedAt),
+    );
+
+    return { ok: true, traces };
+  } catch (error: unknown) {
+    if (isMissingFileError(error)) {
+      return { ok: true, traces: [] };
+    }
+
+    return {
+      ok: false,
+      error: {
+        code: "TRACE_LIST_FAILED",
+        message: getErrorMessage(error),
+      },
+    };
+  }
 }
 
 export async function replayTrace(

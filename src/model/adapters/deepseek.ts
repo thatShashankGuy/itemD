@@ -1,8 +1,16 @@
 import { getErrorMessage, isRecord } from "../../shared/runtime.ts";
+import type { ModelAdapter } from "../adapter.ts";
+import type { ReasoningEffort } from "../contracts.ts";
+import type {
+  ModelCallResult,
+  ModelMessage,
+  ModelToolRequest,
+  ToolAction,
+} from "../types.ts";
 
-export const DEFAULT_DEEPSEEK_MODEL = "deepseek-flash";
 const MODEL_TIMEOUT_MS = 60_000;
 const MAX_MODEL_ERROR_CHARS = 4_000;
+const ENDPOINT = "https://api.deepseek.com/chat/completions";
 
 const SYSTEM_PROMPT = `
 You are the reasoning component of a local coding harness.
@@ -20,80 +28,32 @@ Do not claim that a tool ran unless its result appears in the conversation.
 type DeepSeekToolCall = {
   id: string;
   type: "function";
-  function: {
-    name: string;
-    arguments: string;
-  };
+  function: { name: string; arguments: string };
 };
 
-export type Message =
-  | {
-      role: "user";
-      content: string;
-    }
+type DeepSeekMessage =
+  | { role: "system" | "user"; content: string }
   | {
       role: "assistant";
       content: string | null;
       reasoning_content?: string | null;
       tool_calls?: DeepSeekToolCall[];
     }
-  | {
-      role: "tool";
-      tool_call_id: string;
-      content: string;
-    };
+  | { role: "tool"; tool_call_id: string; content: string };
 
-export type ToolAction = {
-  id: string;
-  name: string;
-  args: Record<string, unknown>;
-  call: unknown;
+export type DeepSeekAdapterOptions = {
+  apiKey: string;
+  model: string;
+  effort: ReasoningEffort;
+  fetchImplementation?: typeof fetch;
 };
-
-type ModelAction =
-  | {
-      type: "tool_calls";
-      calls: ToolAction[];
-    }
-  | {
-      type: "final";
-      text: string;
-    };
-
-export type ModelError = {
-  code: "MODEL_REQUEST_FAILED" | "INVALID_MODEL_RESPONSE";
-  message: string;
-  status?: number;
-  details?: unknown;
-};
-
-export type ModelCallResult =
-  | {
-      ok: true;
-      action: ModelAction;
-      content: Message;
-    }
-  | {
-      ok: false;
-      error: ModelError;
-    };
-
-export function createInitialMessages(task: string): Message[] {
-  return [
-    {
-      role: "user",
-      content: task,
-    },
-  ];
-}
 
 const DEEPSEEK_TOOLS = [
   {
     type: "function",
     function: {
       name: "read_file",
-      description:
-        "Read a UTF-8 text file inside the current workspace.",
+      description: "Read a UTF-8 text file inside the current workspace.",
       parameters: {
         type: "object",
         properties: {
@@ -121,8 +81,7 @@ const DEEPSEEK_TOOLS = [
           },
           oldText: {
             type: "string",
-            description:
-              "Exact text to replace. It must occur exactly once.",
+            description: "Exact text to replace. It must occur exactly once.",
           },
           newText: {
             type: "string",
@@ -151,8 +110,7 @@ const DEEPSEEK_TOOLS = [
           args: {
             type: "array",
             items: { type: "string" },
-            description:
-              "Arguments passed directly without shell interpolation.",
+            description: "Arguments passed directly without shell interpolation.",
           },
         },
         required: ["executable", "args"],
@@ -164,10 +122,7 @@ const DEEPSEEK_TOOLS = [
 function invalidModelResponse(message: string): ModelCallResult {
   return {
     ok: false,
-    error: {
-      code: "INVALID_MODEL_RESPONSE",
-      message,
-    },
+    error: { code: "INVALID_MODEL_RESPONSE", message },
   };
 }
 
@@ -180,9 +135,7 @@ function getFirstChoiceMessage(
 
   const firstChoice = response.choices[0];
 
-  return isRecord(firstChoice)
-    ? firstChoice.message
-    : undefined;
+  return isRecord(firstChoice) ? firstChoice.message : undefined;
 }
 
 export function parseModelResponse(response: unknown): ModelCallResult {
@@ -193,9 +146,7 @@ export function parseModelResponse(response: unknown): ModelCallResult {
   const rawMessage = getFirstChoiceMessage(response);
 
   if (!isRecord(rawMessage)) {
-    return invalidModelResponse(
-      "Model response has no first choice message",
-    );
+    return invalidModelResponse("Model response has no first choice message");
   }
 
   if (rawMessage.role !== "assistant") {
@@ -208,9 +159,7 @@ export function parseModelResponse(response: unknown): ModelCallResult {
     rawMessage.content !== null &&
     typeof rawMessage.content !== "string"
   ) {
-    return invalidModelResponse(
-      "Assistant content must be a string or null",
-    );
+    return invalidModelResponse("Assistant content must be a string or null");
   }
 
   if (
@@ -225,16 +174,11 @@ export function parseModelResponse(response: unknown): ModelCallResult {
 
   const rawToolCalls = rawMessage.tool_calls;
 
-  if (
-    rawToolCalls !== undefined &&
-    !Array.isArray(rawToolCalls)
-  ) {
-    return invalidModelResponse(
-      "Assistant tool calls must be an array",
-    );
+  if (rawToolCalls !== undefined && !Array.isArray(rawToolCalls)) {
+    return invalidModelResponse("Assistant tool calls must be an array");
   }
 
-  const toolCalls: DeepSeekToolCall[] = [];
+  const toolCalls: ModelToolRequest[] = [];
   const toolActions: ToolAction[] = [];
   const toolCallIds = new Set<string>();
 
@@ -274,51 +218,40 @@ export function parseModelResponse(response: unknown): ModelCallResult {
     }
 
     if (!isRecord(parsedArguments)) {
-      return invalidModelResponse(
-        "Tool arguments must decode to an object",
-      );
+      return invalidModelResponse("Tool arguments must decode to an object");
     }
 
-    const toolCall: DeepSeekToolCall = {
+    const toolCall: ModelToolRequest = {
       id: rawToolCall.id,
-      type: "function",
-      function: {
-        name: rawToolCall.function.name,
-        arguments: rawToolCall.function.arguments,
-      },
+      name: rawToolCall.function.name,
+      arguments: rawToolCall.function.arguments,
     };
     toolCalls.push(toolCall);
     toolActions.push({
       id: toolCall.id,
-      name: toolCall.function.name,
+      name: toolCall.name,
       args: parsedArguments,
       call: {
         ...parsedArguments,
-        // Put type last so an argument cannot overwrite the tool name.
-        type: toolCall.function.name,
+        type: toolCall.name,
       },
     });
   }
 
-  const content: Message = {
-    role: "assistant",
+  const message = {
+    role: "assistant" as const,
     content: rawMessage.content,
     ...(rawMessage.reasoning_content === undefined
       ? {}
-      : { reasoning_content: rawMessage.reasoning_content }),
-    ...(rawToolCalls === undefined
-      ? {}
-      : { tool_calls: toolCalls }),
+      : { reasoning: rawMessage.reasoning_content }),
+    ...(rawToolCalls === undefined ? {} : { toolCalls }),
   };
 
   if (toolActions.length > 0) {
     return {
       ok: true,
-      content,
-      action: {
-        type: "tool_calls",
-        calls: toolActions,
-      },
+      message,
+      action: { type: "tool_calls", calls: toolActions },
     };
   }
 
@@ -332,86 +265,143 @@ export function parseModelResponse(response: unknown): ModelCallResult {
 
   return {
     ok: true,
-    content,
-    action: {
-      type: "final",
-      text,
-    },
+    message,
+    action: { type: "final", text },
   };
 }
 
-export async function callDeepSeek(
-  apiKey: string,
-  model: string,
-  messages: Message[],
-): Promise<ModelCallResult> {
-  const endpoint = "https://api.deepseek.com/chat/completions";
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => {
-    controller.abort();
-  }, MODEL_TIMEOUT_MS);
-
-  try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          ...messages,
-        ],
-        tools: DEEPSEEK_TOOLS,
-        thinking: { type: "enabled" },
-      }),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-
-      return {
-        ok: false,
-        error: {
-          code: "MODEL_REQUEST_FAILED",
-          message: `DeepSeek request failed with HTTP ${response.status}`,
-          status: response.status,
-          details: errorBody.slice(0, MAX_MODEL_ERROR_CHARS),
-        },
-      };
-    }
-
-    let responseBody: unknown;
-
-    try {
-      responseBody = await response.json();
-    } catch (error: unknown) {
-      return {
-        ok: false,
-        error: {
-          code: "INVALID_MODEL_RESPONSE",
-          message: `DeepSeek returned invalid JSON: ${getErrorMessage(error)}`,
-        },
-      };
-    }
-
-    return parseModelResponse(responseBody);
-  } catch (error: unknown) {
+function toDeepSeekMessage(message: ModelMessage): DeepSeekMessage {
+  if (message.role === "tool") {
     return {
-      ok: false,
-      error: {
-        code: "MODEL_REQUEST_FAILED",
-        message:
+      role: "tool",
+      tool_call_id: message.toolCallId,
+      content: message.content,
+    };
+  }
+
+  if (message.role === "assistant") {
+    return {
+      role: "assistant",
+      content: message.content,
+      ...(message.reasoning === undefined
+        ? {}
+        : { reasoning_content: message.reasoning }),
+      ...(message.toolCalls === undefined
+        ? {}
+        : {
+            tool_calls: message.toolCalls.map((toolCall) => ({
+              id: toolCall.id,
+              type: "function" as const,
+              function: {
+                name: toolCall.name,
+                arguments: toolCall.arguments,
+              },
+            })),
+          }),
+    };
+  }
+
+  return message;
+}
+
+function redactSecret(text: string, secret: string): string {
+  return secret.length === 0 ? text : text.split(secret).join("[REDACTED]");
+}
+
+export function createDeepSeekAdapter(
+  options: DeepSeekAdapterOptions,
+): ModelAdapter {
+  const fetchImplementation = options.fetchImplementation ?? fetch;
+
+  return {
+    metadata: {
+      provider: "deepseek",
+      model: options.model,
+      effort: options.effort,
+    },
+    async call(history: readonly ModelMessage[]): Promise<ModelCallResult> {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => {
+        controller.abort();
+      }, MODEL_TIMEOUT_MS);
+
+      try {
+        const response = await fetchImplementation(ENDPOINT, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${options.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: options.model,
+            messages: [
+              { role: "system", content: SYSTEM_PROMPT },
+              ...history.map(toDeepSeekMessage),
+            ],
+            tools: DEEPSEEK_TOOLS,
+            thinking: {
+              type: options.effort === "none" ? "disabled" : "enabled",
+            },
+            ...(options.effort === "none"
+              ? {}
+              : { reasoning_effort: options.effort }),
+          }),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          const errorBody = await response.text();
+
+          return {
+            ok: false,
+            error: {
+              code: "MODEL_REQUEST_FAILED",
+              message: `DeepSeek request failed with HTTP ${response.status}`,
+              status: response.status,
+              details: redactSecret(
+                errorBody.slice(0, MAX_MODEL_ERROR_CHARS),
+                options.apiKey,
+              ),
+            },
+          };
+        }
+
+        let responseBody: unknown;
+
+        try {
+          responseBody = await response.json();
+        } catch (error: unknown) {
+          const message = redactSecret(
+            getErrorMessage(error),
+            options.apiKey,
+          );
+
+          return {
+            ok: false,
+            error: {
+              code: "INVALID_MODEL_RESPONSE",
+              message: `DeepSeek returned invalid JSON: ${message}`,
+            },
+          };
+        }
+
+        return parseModelResponse(responseBody);
+      } catch (error: unknown) {
+        const message =
           error instanceof Error && error.name === "AbortError"
             ? `DeepSeek request exceeded ${MODEL_TIMEOUT_MS}ms`
-            : getErrorMessage(error),
-      },
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
+            : getErrorMessage(error);
+
+        return {
+          ok: false,
+          error: {
+            code: "MODEL_REQUEST_FAILED",
+            message: redactSecret(message, options.apiKey),
+          },
+        };
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+  };
 }
