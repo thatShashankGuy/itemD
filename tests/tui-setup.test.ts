@@ -328,4 +328,28 @@ describe("TUI configuration flow", () => {
     expect(io.text()).toContain('"task": "example"');
     expect(io.text()).toContain("Goodbye.");
   });
+
+  test("starts a new session without changing the active configuration", async () => {
+    const { workspace, configPath } = await createTemporaryPaths();
+    await writeConfiguration(storedConfiguration(), {
+      configPath,
+      env: {},
+    });
+    const io = new FakeTuiIO(["/new", "/quit"]);
+
+    await runTui({
+      io,
+      workspaceRoot: workspace,
+      config: { configPath, env: {} },
+    });
+
+    expect(io.text()).toContain(
+      "New session started. Active configuration retained.",
+    );
+    expect(io.text()).toContain("provider: DeepSeek");
+    await expect(readConfiguration({ configPath, env: {} })).resolves.toMatchObject({
+      ok: true,
+      configuration: storedConfiguration(),
+    });
+  });
 });

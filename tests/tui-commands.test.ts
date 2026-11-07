@@ -25,6 +25,8 @@ describe("TUI slash commands", () => {
     expect(help).toContain("Reload the API key");
     expect(help).toContain("/adapter");
     expect(help).toContain("Select a model adapter");
+    expect(help).toContain("/new");
+    expect(help).toContain("Start a new session");
     expect(help).toContain("/theme [dark|light]");
     expect(help).toContain("Switch between dark and light terminal themes");
   });

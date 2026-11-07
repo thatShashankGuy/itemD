@@ -301,6 +301,13 @@ export async function runTui(
         continue;
       }
 
+      if (command === "/new") {
+        io.write("\u001B[2J\u001B[H");
+        writeLine(io, "New session started. Active configuration retained.");
+        writeLine(io);
+        continue;
+      }
+
       if (command === "/replay") {
         await handleReplay(io, workspaceRoot, words);
         continue;
