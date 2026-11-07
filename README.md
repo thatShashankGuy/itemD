@@ -81,7 +81,13 @@ shows an animated loader and Escape stops the task.
 | `/replays` | List recorded runs |
 | `/replay <trace-id>` | Display a recorded run without executing it |
 | `/clear` | Clear the terminal |
+| `/theme [dark\|light]` | Switch themes; omit the argument to toggle |
 | `/quit` or `/exit` | Exit the interface |
+
+The full-screen interface starts in dark mode. `/theme light` switches to a
+light terminal theme, `/theme dark` switches back, and `/theme` toggles the
+current theme. Theme changes affect presentation only; the active provider,
+model, credentials, and agent state are unchanged.
 
 The saved configuration lives outside the workspace in the user-level itemD
 configuration directory (or at `ITEMD_CONFIG_PATH`) and is written with

@@ -46,6 +46,11 @@ export const TUI_COMMANDS = [
     description: "Clear the transcript",
   },
   {
+    name: "/theme",
+    usage: "/theme [dark|light]",
+    description: "Switch between dark and light terminal themes",
+  },
+  {
     name: "/exit",
     usage: "/exit",
     description: "Exit itemD",

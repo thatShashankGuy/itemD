@@ -3,6 +3,7 @@ import {
   ASCIIFontRenderable,
   BoxRenderable,
   CliRenderEvents,
+  ImageRenderable,
   InputRenderable,
   InputRenderableEvents,
   ScrollBoxRenderable,
@@ -40,18 +41,80 @@ import {
   TerminalTuiIO,
 } from "./setup.ts";
 
-const COLORS = {
-  background: "#0b1020",
-  panel: "#11182b",
-  border: "#33476d",
-  accent: "#62d9ff",
-  text: "#e6edf7",
-  muted: "#8290aa",
-  success: "#69db9c",
-  warning: "#f4c66a",
-  error: "#ff7b86",
-  user: "#b9a7ff",
-} as const;
+type ThemeName = "dark" | "light";
+
+type UiTheme = {
+  name: ThemeName;
+  background: string;
+  panel: string;
+  border: string;
+  accent: string;
+  text: string;
+  muted: string;
+  success: string;
+  warning: string;
+  error: string;
+  user: string;
+  selectionBackground: string;
+  selectionText: string;
+};
+
+const DARK_THEME: UiTheme = {
+  name: "dark",
+  background: "#0d1117",
+  panel: "#161b22",
+  border: "#30363d",
+  accent: "#f04444",
+  text: "#f0f3f6",
+  muted: "#8b949e",
+  success: "#56d364",
+  warning: "#e3b341",
+  error: "#ff7b72",
+  user: "#ff7b72",
+  selectionBackground: "#6e1f25",
+  selectionText: "#fff1f1",
+};
+
+const LIGHT_THEME: UiTheme = {
+  name: "light",
+  background: "#f6f8fa",
+  panel: "#ffffff",
+  border: "#afb8c1",
+  accent: "#c62828",
+  text: "#1f2328",
+  muted: "#59636e",
+  success: "#1a7f37",
+  warning: "#9a6700",
+  error: "#cf222e",
+  user: "#b42318",
+  selectionBackground: "#ffd7d9",
+  selectionText: "#5c0010",
+};
+
+let COLORS: UiTheme = DARK_THEME;
+
+type LogColorRole =
+  | "text"
+  | "muted"
+  | "success"
+  | "warning"
+  | "error"
+  | "user";
+
+const LOG_COLOR_ROLES: readonly LogColorRole[] = [
+  "text",
+  "muted",
+  "success",
+  "warning",
+  "error",
+  "user",
+];
+
+function getLogColorRole(theme: UiTheme, color: string): LogColorRole {
+  return (
+    LOG_COLOR_ROLES.find((role) => theme[role] === color) ?? "text"
+  );
+}
 
 const DEFAULT_FOOTER_TEXT =
   " PgUp/PgDn scroll  •  mouse drag copies  •  Esc stops task  •  Ctrl+C exits ";
@@ -146,6 +209,7 @@ function configurationText(active: ActiveConfiguration): string {
 }
 
 export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
+  COLORS = DARK_THEME;
   const initialActive = await runInitialSetup(options.config);
 
   if (initialActive === null) {
@@ -192,7 +256,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   const header = new BoxRenderable(renderer, {
     id: "header",
     width: "100%",
-    height: 4,
+    height: 5,
     flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
@@ -203,13 +267,26 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     borderColor: COLORS.border,
     backgroundColor: COLORS.panel,
   });
-  const logo = new ASCIIFontRenderable(renderer, {
-    id: "logo",
-    text: "ITEMD",
+  const logoFallback = new ASCIIFontRenderable(renderer, {
+    id: "logo-fallback",
+    text: "itemD",
     font: "tiny",
     color: COLORS.accent,
     selectable: false,
     flexShrink: 0,
+    visible: false,
+  });
+  const logo = new ImageRenderable(renderer, {
+    id: "logo",
+    source: new URL("../../assets/Just_One_More_Commit.png", import.meta.url),
+    width: 8,
+    height: 3,
+    fit: "fill",
+    flexShrink: 0,
+    onError: () => {
+      logo.visible = false;
+      logoFallback.visible = true;
+    },
   });
   const headerText = new TextRenderable(renderer, {
     id: "active-configuration",
@@ -227,6 +304,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     flexShrink: 0,
   });
   header.add(logo);
+  header.add(logoFallback);
   header.add(headerText);
   header.add(statusText);
 
@@ -260,7 +338,6 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       },
     },
   });
-
   const commandPalette = new BoxRenderable(renderer, {
     id: "command-palette",
     width: "100%",
@@ -280,6 +357,8 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     content: "",
     width: "100%",
     fg: COLORS.text,
+    selectionBg: COLORS.selectionBackground,
+    selectionFg: COLORS.selectionText,
     wrapMode: "none",
   });
   commandPalette.add(commandPaletteText);
@@ -306,7 +385,11 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     backgroundColor: COLORS.panel,
     focusedBackgroundColor: COLORS.panel,
     textColor: COLORS.text,
+    focusedTextColor: COLORS.text,
+    placeholderColor: COLORS.muted,
     cursorColor: COLORS.accent,
+    selectionBg: COLORS.selectionBackground,
+    selectionFg: COLORS.selectionText,
   });
   inputBox.add(taskInput);
 
@@ -334,6 +417,10 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   let activeRunController: AbortController | null = null;
   let stopLoaderTick: (() => void) | null = null;
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
+  const transcriptEntries: Array<{
+    renderable: TextRenderable;
+    colorRole: LogColorRole;
+  }> = [];
 
   const stopLoader = (): void => {
     stopLoaderTick?.();
@@ -381,7 +468,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     const configuration = active.configuration;
     headerText.content =
       `${configuration.provider}  •  ${configuration.model}  •  ${configuration.effort}\n` +
-      `workspace: ${basename(options.workspaceRoot)}`;
+      `workspace: ${basename(options.workspaceRoot)}  •  theme: ${COLORS.name}`;
   };
 
   const appendLog = (
@@ -389,22 +476,74 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     message: string,
     color: string = COLORS.text,
   ): void => {
+    const colorRole = getLogColorRole(COLORS, color);
     const entry = new TextRenderable(renderer, {
       content: `${label}${message}`,
       width: "100%",
       flexShrink: 0,
-      fg: color,
+      fg: COLORS[colorRole],
+      selectionBg: COLORS.selectionBackground,
+      selectionFg: COLORS.selectionText,
       wrapMode: "word",
       marginBottom: 1,
     });
+    transcriptEntries.push({ renderable: entry, colorRole });
     transcript.add(entry);
     transcript.scrollTo(Infinity);
+  };
+
+  const applyTheme = (theme: UiTheme): void => {
+    COLORS = theme;
+    renderer.setBackgroundColor(theme.background);
+    app.backgroundColor = theme.background;
+    header.borderColor = theme.border;
+    header.backgroundColor = theme.panel;
+    logoFallback.color = theme.accent;
+    headerText.fg = theme.text;
+    statusText.fg = busy ? theme.warning : theme.success;
+    transcript.borderColor = theme.border;
+    transcript.titleColor = theme.muted;
+    transcript.viewport.backgroundColor = theme.background;
+    transcript.verticalScrollBar.trackOptions = {
+      foregroundColor: theme.accent,
+      backgroundColor: theme.panel,
+    };
+    commandPalette.borderColor = theme.accent;
+    commandPalette.titleColor = theme.accent;
+    commandPalette.backgroundColor = theme.panel;
+    commandPaletteText.fg = theme.text;
+    commandPaletteText.selectionBg = theme.selectionBackground;
+    commandPaletteText.selectionFg = theme.selectionText;
+    inputBox.borderColor = theme.border;
+    inputBox.focusedBorderColor = theme.accent;
+    inputBox.titleColor = theme.accent;
+    inputBox.backgroundColor = theme.panel;
+    taskInput.backgroundColor = theme.panel;
+    taskInput.focusedBackgroundColor = theme.panel;
+    taskInput.textColor = theme.text;
+    taskInput.focusedTextColor = theme.text;
+    taskInput.placeholderColor = theme.muted;
+    taskInput.cursorColor = theme.accent;
+    taskInput.selectionBg = theme.selectionBackground;
+    taskInput.selectionFg = theme.selectionText;
+    footer.bg = theme.panel;
+    footer.fg = theme.muted;
+
+    for (const entry of transcriptEntries) {
+      entry.renderable.fg = theme[entry.colorRole];
+      entry.renderable.selectionBg = theme.selectionBackground;
+      entry.renderable.selectionFg = theme.selectionText;
+    }
+
+    updateHeader();
   };
 
   const clearTranscript = (): void => {
     for (const child of transcript.getChildren()) {
       child.destroyRecursively();
     }
+
+    transcriptEntries.length = 0;
 
     appendLog(
       "",
@@ -652,6 +791,33 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       case "/clear":
         clearTranscript();
         return;
+      case "/theme": {
+        const requestedTheme = words[1]?.toLowerCase();
+        let nextTheme: UiTheme;
+
+        if (requestedTheme === undefined) {
+          nextTheme = COLORS.name === "dark" ? LIGHT_THEME : DARK_THEME;
+        } else if (requestedTheme === "dark") {
+          nextTheme = DARK_THEME;
+        } else if (requestedTheme === "light") {
+          nextTheme = LIGHT_THEME;
+        } else {
+          appendLog(
+            "usage  ",
+            "/theme [dark|light] (omit the argument to toggle)",
+            COLORS.warning,
+          );
+          return;
+        }
+
+        applyTheme(nextTheme);
+        appendLog(
+          "theme  ",
+          `Switched to ${nextTheme.name} mode.`,
+          COLORS.success,
+        );
+        return;
+      }
       case "/exit":
       case "/quit":
         await shutdown();
