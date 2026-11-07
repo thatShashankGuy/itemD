@@ -16,6 +16,11 @@ import {
   MAX_FILE_BYTES,
   resolveWorkspaceFile,
 } from "../workspace/files.ts";
+import type { SearchProvider } from "../web/provider.ts";
+
+export type ToolExecutionOptions = {
+  webSearchProvider?: SearchProvider;
+};
 
 async function executeReadFile(
   call: Extract<ToolCall, { type: "read_file" }>,
@@ -178,12 +183,77 @@ async function executeShell(
   };
 }
 
+async function executeWebSearch(
+  call: Extract<ToolCall, { type: "web_search" }>,
+  provider: SearchProvider | undefined,
+  signal?: AbortSignal,
+): Promise<ToolResult> {
+  if (provider === undefined) {
+    return {
+      ok: false,
+      error: {
+        code: "WEB_SEARCH_DISABLED",
+        message:
+          "Web search is disabled. Enable it and configure a Serper API key first.",
+      },
+    };
+  }
+
+  const result = await provider.search(call.query, signal);
+
+  return result.ok
+    ? result
+    : {
+        ok: false,
+        error: {
+          code: "WEB_SEARCH_FAILED",
+          message: result.error.message,
+          ...(result.error.status === undefined
+            ? {}
+            : { details: { status: result.error.status } }),
+        },
+      };
+}
+
+async function executeWebFetch(
+  call: Extract<ToolCall, { type: "web_fetch" }>,
+  provider: SearchProvider | undefined,
+  signal?: AbortSignal,
+): Promise<ToolResult> {
+  if (provider === undefined) {
+    return {
+      ok: false,
+      error: {
+        code: "WEB_SEARCH_DISABLED",
+        message:
+          "Web fetch is disabled. Enable web search and configure a Serper API key first.",
+      },
+    };
+  }
+
+  const result = await provider.fetch(call.url, signal);
+
+  return result.ok
+    ? result
+    : {
+        ok: false,
+        error: {
+          code: "WEB_FETCH_FAILED",
+          message: result.error.message,
+          ...(result.error.status === undefined
+            ? {}
+            : { details: { status: result.error.status } }),
+        },
+      };
+}
+
 // Tool dispatcher
 
 export async function executeTool(
   input: unknown,
   workspaceRoot: string,
   signal?: AbortSignal,
+  options: ToolExecutionOptions = {},
 ): Promise<ToolResult> {
   const validation = validateToolCall(input);
 
@@ -200,5 +270,19 @@ export async function executeTool(
 
     case "shell":
       return executeShell(validation.call, workspaceRoot, signal);
+
+    case "web_search":
+      return executeWebSearch(
+        validation.call,
+        options.webSearchProvider,
+        signal,
+      );
+
+    case "web_fetch":
+      return executeWebFetch(
+        validation.call,
+        options.webSearchProvider,
+        signal,
+      );
   }
 }

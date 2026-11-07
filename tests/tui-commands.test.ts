@@ -13,7 +13,7 @@ describe("TUI slash commands", () => {
   test("filters commands by the typed prefix", () => {
     expect(
       suggestTuiCommands("/re").map((command) => command.name),
-    ).toEqual(["/reload", "/replays", "/replay"]);
+    ).toEqual(["/reasoning", "/reload", "/replays", "/replay"]);
     expect(suggestTuiCommands("plain task")).toEqual([]);
     expect(suggestTuiCommands("/replay ")).toEqual([]);
   });
@@ -23,6 +23,8 @@ describe("TUI slash commands", () => {
 
     expect(help).toContain("/reload");
     expect(help).toContain("Reload the API key");
+    expect(help).toContain("/reasoning [on|off]");
+    expect(help).toContain("Toggle reasoning in live runs");
     expect(help).toContain("/adapter");
     expect(help).toContain("Select a model adapter");
     expect(help).toContain("/new");

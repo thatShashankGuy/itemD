@@ -155,6 +155,36 @@ describe("configuration validation", () => {
 
     expect(JSON.stringify(result)).not.toContain(apiKey);
   });
+
+  test("validates optional Serper web-search configuration", () => {
+    const result = validateConfiguration({
+      ...validConfiguration(),
+      webSearch: {
+        enabled: true,
+        serperApiKey: "serper-secret",
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      configuration: {
+        webSearch: {
+          enabled: true,
+          serperApiKey: "serper-secret",
+        },
+      },
+    });
+
+    expect(
+      validateConfiguration({
+        ...validConfiguration(),
+        webSearch: { enabled: true, serperApiKey: "" },
+      }),
+    ).toMatchObject({
+      ok: false,
+      error: { code: "CONFIG_VALIDATION_FAILED" },
+    });
+  });
 });
 
 describe("configuration writes", () => {
@@ -257,6 +287,27 @@ describe("environment overrides", () => {
         model: "deepseek-v4-pro",
         effort: "max",
         apiKey: "environment-secret",
+      },
+    });
+  });
+
+  test("enables web search from an environment Serper key", async () => {
+    const { path } = await createConfigPath();
+    const result = await resolveConfiguration({
+      configPath: path,
+      env: {
+        DEEPSEEK_API_KEY: "environment-secret",
+        SERPER_API_KEY: "serper-secret",
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      configuration: {
+        webSearch: {
+          enabled: true,
+          serperApiKey: "serper-secret",
+        },
       },
     });
   });

@@ -11,8 +11,3 @@ removed instead of being retained as a historical checklist.
 - [ ] Keep replay independent from provider credentials.
 - [ ] Finish provider/configuration documentation and final verification.
 - [ ] Perform one live, read-only DeepSeek tool run after mocked checks pass.
-
-## Pipeline — Not started
-
-These features are recorded for future work only. Do not implement them as part
-of the current provider-finalization checkpoint.

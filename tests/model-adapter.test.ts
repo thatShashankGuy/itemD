@@ -195,6 +195,36 @@ describe("DeepSeek adapter requests", () => {
     });
   });
 
+  test("advertises web search and fetch as model tools", async () => {
+    let requestBody:
+      | { tools?: Array<{ function?: { name?: string } }> }
+      | undefined;
+    const result = createDeepSeek(
+      "high",
+      responseFetch(finalResponse(), (init) => {
+        requestBody = JSON.parse(String(init?.body)) as {
+          tools?: Array<{ function?: { name?: string } }>;
+        };
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+
+    if (!result.ok) {
+      return;
+    }
+
+    await result.adapter.call([{ role: "user", content: "search" }]);
+
+    expect(requestBody?.tools?.map((tool) => tool.function?.name)).toEqual([
+      "read_file",
+      "edit_file",
+      "shell",
+      "web_search",
+      "web_fetch",
+    ]);
+  });
+
   test("returns a structured error for a malformed provider response", async () => {
     const result = createDeepSeek(
       "high",
@@ -279,5 +309,43 @@ describe("provider-neutral runner", () => {
     });
     expect(trace).not.toContain("apiKey");
     expect(trace).not.toContain("test-secret");
+  });
+
+  test("emits reasoning events without changing the provider-neutral loop", async () => {
+    const temporaryWorkspace = await mkdtemp(
+      join(tmpdir(), "itemd-reasoning-test-"),
+    );
+    temporaryDirectories.push(temporaryWorkspace);
+    const workspace = await realpath(temporaryWorkspace);
+    const events: Array<{ type: string; step: number; text: string }> = [];
+    const adapter: ModelAdapter = {
+      metadata: {
+        provider: "deepseek",
+        model: "deepseek-flash",
+        effort: "high",
+      },
+      async call() {
+        return {
+          ok: true,
+          message: {
+            role: "assistant" as const,
+            content: "DONE: complete",
+            reasoning: "I checked the task.",
+          },
+          action: { type: "final" as const, text: "DONE: complete" },
+        };
+      },
+    };
+
+    const result = await runAgent("task", adapter, workspace, {
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(events).toEqual([
+      { type: "reasoning", step: 1, text: "I checked the task." },
+    ]);
   });
 });

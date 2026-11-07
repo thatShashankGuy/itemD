@@ -11,7 +11,9 @@ import {
 import type { ModelAdapter } from "../model/adapter.ts";
 import { PROVIDER_CATALOG } from "../model/catalog.ts";
 import { createModelAdapter } from "../model/factory.ts";
-import { getErrorMessage } from "../shared/runtime.ts";
+import { getErrorMessage, isRecord } from "../shared/runtime.ts";
+import { createSerperSearchProvider } from "../web/provider.ts";
+import type { SearchProvider } from "../web/provider.ts";
 import {
   listTraces,
   replayTrace,
@@ -25,6 +27,10 @@ import {
   runSetup,
   type TuiIO,
 } from "./setup.ts";
+import {
+  executePrefixedShellCommand,
+  formatShellResult,
+} from "./shell.ts";
 
 export {
   runSetup,
@@ -47,6 +53,7 @@ function printHelp(io: TuiIO): void {
   }
   writeLine(io, "  exit()               Exit the interface");
   writeLine(io);
+  writeLine(io, "Prefix a command with ! to run it through the shell policy.");
   writeLine(io, "Any other input starts a new independent agent task.");
 }
 
@@ -64,8 +71,35 @@ function printAgentResult(io: TuiIO, result: AgentRunResult): void {
   writeLine(io);
 }
 
-function printReplayResult(io: TuiIO, result: ReplayResult): void {
-  writeLine(io, JSON.stringify(result, null, 2));
+function withoutReasoning(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(withoutReasoning);
+  }
+
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => key !== "reasoning")
+      .map(([key, entry]) => [key, withoutReasoning(entry)]),
+  );
+}
+
+function printReplayResult(
+  io: TuiIO,
+  result: ReplayResult,
+  includeReasoning: boolean,
+): void {
+  writeLine(
+    io,
+    JSON.stringify(
+      includeReasoning ? result : withoutReasoning(result),
+      null,
+      2,
+    ),
+  );
   writeLine(io);
 }
 
@@ -86,11 +120,16 @@ function printActiveConfiguration(
   writeLine(io, `  provider: ${provider?.displayName ?? configuration.provider}`);
   writeLine(io, `  model: ${configuration.model}`);
   writeLine(io, `  effort: ${effort?.displayName ?? configuration.effort}`);
+  writeLine(
+    io,
+    `  web search: ${configuration.webSearch?.enabled ? "enabled" : "disabled"}`,
+  );
 }
 
 export type ActiveConfiguration = {
   configuration: ItemDConfiguration;
   adapter: ModelAdapter;
+  webSearchProvider?: SearchProvider;
 };
 
 export async function resolveActiveConfiguration(
@@ -115,9 +154,17 @@ export async function resolveActiveConfiguration(
     return null;
   }
 
+  const webSearchProvider =
+    result.configuration.webSearch?.enabled === true
+      ? createSerperSearchProvider({
+          apiKey: result.configuration.webSearch.serperApiKey,
+        })
+      : undefined;
+
   return {
     configuration: result.configuration,
     adapter: adapterResult.adapter,
+    ...(webSearchProvider === undefined ? {} : { webSearchProvider }),
   };
 }
 
@@ -125,6 +172,7 @@ async function handleReplay(
   io: TuiIO,
   workspaceRoot: string,
   words: string[],
+  includeReasoning: boolean,
 ): Promise<void> {
   if (words.length !== 2) {
     writeLine(io, "Usage: /replay <trace-id>");
@@ -139,12 +187,13 @@ async function handleReplay(
   }
 
   const result = await replayTrace(workspaceRoot, traceId);
-  printReplayResult(io, result);
+  printReplayResult(io, result, includeReasoning);
 }
 
 async function handleReplayList(
   io: TuiIO,
   workspaceRoot: string,
+  includeReasoning: boolean,
 ): Promise<void> {
   const result = await listTraces(workspaceRoot);
 
@@ -160,13 +209,35 @@ async function handleReplayList(
     return;
   }
 
-  writeLine(io, "Recorded runs (newest first):");
+  writeLine(io, "Select a replay (newest first):");
 
-  for (const trace of result.traces) {
-    writeLine(io, `  ${trace.traceId}  ${trace.modifiedAt}`);
+  result.traces.forEach((trace, index) => {
+    writeLine(io, `  ${index + 1}. ${trace.traceId}  ${trace.modifiedAt}`);
+  });
+
+  const answer = await io.question("Replay: ");
+
+  if (answer === null) {
+    return;
   }
 
-  writeLine(io, "Use /replay <trace-id> to display a run.");
+  const index = Number(answer.trim()) - 1;
+  const trace = Number.isInteger(index)
+    ? result.traces[index]
+    : undefined;
+
+  if (trace === undefined) {
+    writeLine(io, "Replay selection cancelled or invalid.");
+    writeLine(io);
+    return;
+  }
+
+  await handleReplay(
+    io,
+    workspaceRoot,
+    ["/replay", trace.traceId],
+    includeReasoning,
+  );
   writeLine(io);
 }
 
@@ -218,6 +289,8 @@ export async function runTui(
   writeLine(io, "Type /help for commands. Each task starts a new run.");
   writeLine(io);
 
+  let streamReasoning = false;
+
   try {
     while (!io.interrupted) {
       const answer = await io.question(PROMPT);
@@ -251,6 +324,29 @@ export async function runTui(
 
       if (command === "/config") {
         printActiveConfiguration(io, active.configuration);
+        writeLine(io);
+        continue;
+      }
+
+      if (command === "/reasoning") {
+        const requested = words[1]?.toLowerCase();
+
+        if (
+          requested !== undefined &&
+          requested !== "on" &&
+          requested !== "off"
+        ) {
+          writeLine(io, "Usage: /reasoning [on|off]");
+        } else {
+          streamReasoning = requested === undefined
+            ? !streamReasoning
+            : requested === "on";
+          writeLine(
+            io,
+            `Replay reasoning ${streamReasoning ? "enabled" : "disabled"}.`,
+          );
+        }
+
         writeLine(io);
         continue;
       }
@@ -309,12 +405,23 @@ export async function runTui(
       }
 
       if (command === "/replay") {
-        await handleReplay(io, workspaceRoot, words);
+        await handleReplay(io, workspaceRoot, words, streamReasoning);
         continue;
       }
 
       if (command === "/replays") {
-        await handleReplayList(io, workspaceRoot);
+        await handleReplayList(io, workspaceRoot, streamReasoning);
+        continue;
+      }
+
+      if (line.startsWith("!")) {
+        const shellInput = line.slice(1).trim();
+        const shellResult = await executePrefixedShellCommand(
+          shellInput,
+          workspaceRoot,
+        );
+        writeLine(io, formatShellResult(shellInput, shellResult));
+        writeLine(io);
         continue;
       }
 
@@ -335,6 +442,18 @@ export async function runTui(
           line,
           active.adapter,
           workspaceRoot,
+          {
+            tools: {
+              ...(active.webSearchProvider === undefined
+                ? {}
+                : { webSearchProvider: active.webSearchProvider }),
+            },
+            onEvent: (event) => {
+              if (streamReasoning && event.type === "reasoning") {
+                writeLine(io, `[reasoning step ${event.step}] ${event.text}`);
+              }
+            },
+          },
         );
 
         printAgentResult(io, result);

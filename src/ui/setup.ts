@@ -8,6 +8,7 @@ import {
   ITEMD_CONFIG_VERSION,
   type ConfigurationOptions,
   type ItemDConfiguration,
+  readConfiguration,
   writeConfiguration,
 } from "../config/configuration.ts";
 import { PROVIDER_CATALOG } from "../model/catalog.ts";
@@ -111,12 +112,22 @@ async function askForIndex(
   io: TuiIO,
   prompt: string,
   choiceCount: number,
+  defaultIndex = 0,
 ): Promise<number | null> {
+  const safeDefault =
+    defaultIndex >= 0 && defaultIndex < choiceCount ? defaultIndex : 0;
+
   while (true) {
-    const answer = await io.question(prompt);
+    const answer = await io.question(
+      `${prompt} [${safeDefault + 1}]: `,
+    );
 
     if (answer === null) {
       return null;
+    }
+
+    if (answer.trim().length === 0) {
+      return safeDefault;
     }
 
     const index = Number(answer.trim()) - 1;
@@ -129,9 +140,48 @@ async function askForIndex(
   }
 }
 
+async function askToEnableWebSearch(
+  io: TuiIO,
+  defaultValue = false,
+): Promise<boolean | null> {
+  while (true) {
+    const answer = await io.question(
+      `Enable web search? [${defaultValue ? "Y/n" : "y/N"}]: `,
+    );
+
+    if (answer === null) {
+      return null;
+    }
+
+    const normalized = answer.trim().toLowerCase();
+
+    if (normalized === "") {
+      return defaultValue;
+    }
+
+    if (normalized === "n" || normalized === "no") {
+      return false;
+    }
+
+    if (normalized === "y" || normalized === "yes") {
+      return true;
+    }
+
+    writeLine(io, "Enter yes or no.");
+  }
+}
+
 async function selectProvider(
   io: TuiIO,
+  defaultProviderId?: string,
 ): Promise<EnabledProviderDefinition | null> {
+  const defaultIndex = Math.max(
+    PROVIDER_CATALOG.findIndex(
+      (candidate) => candidate.id === defaultProviderId && candidate.enabled,
+    ),
+    0,
+  );
+
   while (true) {
     writeLine(io, "Select a provider:");
 
@@ -146,6 +196,7 @@ async function selectProvider(
       io,
       "Provider: ",
       PROVIDER_CATALOG.length,
+      defaultIndex,
     );
 
     if (index === null) {
@@ -177,10 +228,19 @@ export async function runSetup(
   io: TuiIO,
   configOptions: ConfigurationOptions = {},
 ): Promise<SetupResult> {
-  writeLine(io, "Model setup");
+  const storedResult = await readConfiguration(configOptions);
+  const stored = storedResult.ok ? storedResult.configuration : null;
+  const isReconfiguration = stored !== null;
+
+  writeLine(io, isReconfiguration ? "Update itemD configuration" : "Set up itemD");
+  if (isReconfiguration) {
+    writeLine(io, "Press Enter to keep the current choice or credential.");
+  } else {
+    writeLine(io, "Press Enter to use the default choice.");
+  }
   writeLine(io);
 
-  const provider = await selectProvider(io);
+  const provider = await selectProvider(io, stored?.provider);
 
   if (provider === null) {
     return { status: "cancelled" };
@@ -195,6 +255,13 @@ export async function runSetup(
     io,
     "Model: ",
     provider.models.length,
+    Math.max(
+      provider.models.findIndex((candidate) => candidate.id === stored?.model),
+      provider.models.findIndex(
+        (candidate) => candidate.id === provider.defaultModel,
+      ),
+      0,
+    ),
   );
 
   if (modelIndex === null) {
@@ -216,6 +283,15 @@ export async function runSetup(
     io,
     "Effort: ",
     provider.reasoningEfforts.length,
+    Math.max(
+      provider.reasoningEfforts.findIndex(
+        (candidate) => candidate.id === stored?.effort,
+      ),
+      provider.reasoningEfforts.findIndex(
+        (candidate) => candidate.id === provider.defaultEffort,
+      ),
+      0,
+    ),
   );
 
   if (effortIndex === null) {
@@ -228,22 +304,77 @@ export async function runSetup(
     return { status: "failed" };
   }
 
-  let apiKey: string;
+  const storedApiKey =
+    stored?.provider === provider.id ? stored.apiKey : undefined;
+  let apiKey = storedApiKey ?? "";
 
   while (true) {
-    const answer = await io.question("API key: ", { masked: true });
+    const answer = await io.question(
+      storedApiKey === undefined
+        ? "Model API key: "
+        : "Model API key (Enter to keep current): ",
+      { masked: true },
+    );
 
     if (answer === null) {
       return { status: "cancelled" };
     }
 
-    apiKey = answer.trim();
+    const submittedKey = answer.trim();
 
-    if (apiKey.length > 0) {
+    if (submittedKey.length > 0) {
+      apiKey = submittedKey;
       break;
     }
 
-    writeLine(io, "API key cannot be empty.");
+    if (storedApiKey !== undefined) {
+      break;
+    }
+
+    writeLine(io, "Model API key cannot be empty.");
+  }
+
+  const webSearchEnabled = await askToEnableWebSearch(
+    io,
+    stored?.webSearch?.enabled ?? false,
+  );
+
+  if (webSearchEnabled === null) {
+    return { status: "cancelled" };
+  }
+
+  const storedSerperApiKey =
+    stored?.webSearch?.serperApiKey.length === 0
+      ? undefined
+      : stored?.webSearch?.serperApiKey;
+  let serperApiKey = storedSerperApiKey ?? "";
+
+  if (webSearchEnabled) {
+    while (true) {
+      const answer = await io.question(
+        storedSerperApiKey === undefined
+          ? "Serper API key: "
+          : "Serper API key (Enter to keep current): ",
+        { masked: true },
+      );
+
+      if (answer === null) {
+        return { status: "cancelled" };
+      }
+
+      const submittedKey = answer.trim();
+
+      if (submittedKey.length > 0) {
+        serperApiKey = submittedKey;
+        break;
+      }
+
+      if (storedSerperApiKey !== undefined) {
+        break;
+      }
+
+      writeLine(io, "Serper API key cannot be empty.");
+    }
   }
 
   const configuration: ItemDConfiguration = {
@@ -252,6 +383,10 @@ export async function runSetup(
     model: model.id,
     effort: effort.id,
     apiKey,
+    webSearch: {
+      enabled: webSearchEnabled,
+      serperApiKey,
+    },
   };
 
   writeLine(io);
@@ -259,6 +394,7 @@ export async function runSetup(
   writeLine(io, `  provider: ${provider.displayName}`);
   writeLine(io, `  model: ${model.displayName}`);
   writeLine(io, `  effort: ${effort.displayName}`);
+  writeLine(io, `  web search: ${webSearchEnabled ? "enabled" : "disabled"}`);
 
   const writeResult = await writeConfiguration(
     configuration,
@@ -271,6 +407,7 @@ export async function runSetup(
   }
 
   writeLine(io, "Configuration saved.");
+  writeLine(io, `Location: ${writeResult.path}`);
   writeLine(io);
 
   return { status: "saved" };

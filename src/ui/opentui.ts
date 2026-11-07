@@ -16,7 +16,10 @@ import {
   type KeyEvent,
   type Selection,
 } from "@opentui/core";
-import { runAgent } from "../agent/runner.ts";
+import {
+  runAgent,
+  type AgentRunEvent,
+} from "../agent/runner.ts";
 import {
   resolveConfiguration,
   type ConfigurationOptions,
@@ -26,8 +29,11 @@ import type { ModelAdapter } from "../model/adapter.ts";
 import { createModelAdapter } from "../model/factory.ts";
 import {
   getErrorMessage,
+  isRecord,
   isStandaloneExecutable,
 } from "../shared/runtime.ts";
+import { createSerperSearchProvider } from "../web/provider.ts";
+import type { SearchProvider } from "../web/provider.ts";
 import { listTraces, replayTrace } from "../telemetry/trace.ts";
 import {
   formatTuiCommandHelp,
@@ -39,6 +45,10 @@ import {
   getTranscriptSelectionText,
   LOADER_FRAMES,
 } from "./feedback.ts";
+import {
+  executePrefixedShellCommand,
+  formatShellResult,
+} from "./shell.ts";
 import {
   runSetup,
   TerminalTuiIO,
@@ -124,12 +134,99 @@ const DEFAULT_FOOTER_TEXT =
 const KEYBOARD_HELP =
   "Keys\n" +
   "Esc             Stop the active agent task\n" +
+  "!<command>      Run a command through the shell policy\n" +
   "PgUp/PgDn      Scroll the transcript\n" +
   "Ctrl+Up/Down   Fine-scroll the transcript\n" +
   "Mouse drag     Select and copy transcript text\n" +
   "Ctrl+C         Exit itemD";
 
 const LOGO_ASSET_NAME = "Just_One_More_Commit.png";
+const MAX_REPLAY_CHOICES = 12;
+const REPLAY_EVENT_DELAY_MS = 120;
+const MAX_REPLAY_EVENT_CHARS = 20_000;
+
+function formatReplayJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function trimReplayText(value: string): string {
+  return value.length <= MAX_REPLAY_EVENT_CHARS
+    ? value
+    : `${value.slice(0, MAX_REPLAY_EVENT_CHARS)}\n[…replay event truncated]`;
+}
+
+function formatReplayEvent(
+  event: unknown,
+  includeReasoning: boolean,
+): string {
+  if (!isRecord(event) || typeof event.type !== "string") {
+    return trimReplayText(formatReplayJson(event));
+  }
+
+  if (event.type === "run_start") {
+    return [
+      `task: ${typeof event.task === "string" ? event.task : "unknown"}`,
+      `model: ${String(event.provider ?? "unknown")} / ${String(event.model ?? "unknown")} (${String(event.effort ?? "unknown")})`,
+      `step limit: ${String(event.maxSteps ?? "unknown")}`,
+    ].join("\n");
+  }
+
+  if (event.type === "model_call") {
+    const result = isRecord(event.result) ? event.result : undefined;
+    const message =
+      result !== undefined && isRecord(result.message)
+        ? result.message
+        : undefined;
+    const lines = [
+      `step ${String(event.step ?? "?")} • model call • ${String(event.durationMs ?? "?")}ms`,
+    ];
+
+    if (message !== undefined && typeof message.reasoning === "string") {
+      lines.push(
+        includeReasoning
+          ? `reasoning:\n${message.reasoning}`
+          : "reasoning hidden — use /reasoning on to show it",
+      );
+    }
+
+    const action = result !== undefined && isRecord(result.action)
+      ? result.action
+      : undefined;
+
+    if (action?.type === "final" && typeof action.text === "string") {
+      lines.push(`response:\n${action.text}`);
+    } else if (action?.type === "tool_calls" && Array.isArray(action.calls)) {
+      const names = action.calls
+        .filter(isRecord)
+        .map((call) => String(call.name ?? "unknown"))
+        .join(", ");
+      lines.push(`tools requested: ${names || "unknown"}`);
+    }
+
+    return trimReplayText(lines.join("\n"));
+  }
+
+  if (event.type === "tool_call") {
+    const request = isRecord(event.request) ? event.request : undefined;
+    return trimReplayText(
+      [
+        `step ${String(event.step ?? "?")} • tool call • ${String(event.durationMs ?? "?")}ms`,
+        `tool: ${String(request?.type ?? request?.name ?? "unknown")}`,
+        `result:\n${formatReplayJson(event.result)}`,
+      ].join("\n"),
+    );
+  }
+
+  if (event.type === "run_end") {
+    return trimReplayText(`run complete\n${formatReplayJson(event.result)}`);
+  }
+
+  return trimReplayText(formatReplayJson(event));
+}
 
 function logoSource(): URL | Blob {
   const bun = (
@@ -162,6 +259,7 @@ type OpenTuiOptions = {
 type ActiveConfiguration = {
   configuration: ItemDConfiguration;
   adapter: ModelAdapter;
+  webSearchProvider?: SearchProvider;
 };
 
 async function loadActiveConfiguration(
@@ -189,11 +287,19 @@ async function loadActiveConfiguration(
     return { ok: false, message: adapterResult.error.message };
   }
 
+  const webSearchProvider =
+    result.configuration.webSearch?.enabled === true
+      ? createSerperSearchProvider({
+          apiKey: result.configuration.webSearch.serperApiKey,
+        })
+      : undefined;
+
   return {
     ok: true,
     active: {
       configuration: result.configuration,
       adapter: adapterResult.adapter,
+      ...(webSearchProvider === undefined ? {} : { webSearchProvider }),
     },
   };
 }
@@ -232,8 +338,13 @@ async function runInitialSetup(
 }
 
 function configurationText(active: ActiveConfiguration): string {
-  const { provider, model, effort } = active.configuration;
-  return `provider: ${provider}\nmodel: ${model}\neffort: ${effort}`;
+  const { provider, model, effort, webSearch } = active.configuration;
+  return [
+    `provider: ${provider}`,
+    `model: ${model}`,
+    `effort: ${effort}`,
+    `web search: ${webSearch?.enabled ? "enabled" : "disabled"}`,
+  ].join("\n");
 }
 
 export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
@@ -443,7 +554,16 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   let visibleCommands: readonly TuiCommand[] = [];
   let busy = false;
   let activeRunController: AbortController | null = null;
+  let activeReplayController: AbortController | null = null;
+  let replayPickerVisible = false;
+  let replayChoices: Array<{
+    traceId: string;
+    modifiedAt: string;
+  }> = [];
+  let selectedReplayIndex = 0;
+  let streamReasoning = false;
   let stopLoaderTick: (() => void) | null = null;
+  let elapsedTimer: ReturnType<typeof setInterval> | null = null;
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
   const transcriptEntries: Array<{
     renderable: TextRenderable;
@@ -453,6 +573,33 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   const stopLoader = (): void => {
     stopLoaderTick?.();
     stopLoaderTick = null;
+  };
+
+  const stopElapsedTimer = (): void => {
+    if (elapsedTimer !== null) {
+      clearInterval(elapsedTimer);
+      elapsedTimer = null;
+    }
+  };
+
+  const formatElapsed = (startedAt: number): string => {
+    const seconds = Math.floor((Date.now() - startedAt) / 1_000);
+    const minutes = Math.floor(seconds / 60);
+    return `${String(minutes).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+  };
+
+  const startElapsedTimer = (label: string): void => {
+    stopElapsedTimer();
+    const startedAt = Date.now();
+    const update = (): void => {
+      if (!renderer.isDestroyed) {
+        footer.content = ` ${label} ${formatElapsed(startedAt)}`;
+        footer.fg = COLORS.muted;
+      }
+    };
+
+    update();
+    elapsedTimer = setInterval(update, 1_000);
   };
 
   const startLoader = (): void => {
@@ -495,7 +642,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   const updateHeader = (): void => {
     const configuration = active.configuration;
     headerText.content =
-      `${configuration.provider}  •  ${configuration.model}  •  ${configuration.effort}\n` +
+      `${configuration.provider}  •  ${configuration.model}  •  ${configuration.effort}  •  web ${configuration.webSearch?.enabled ? "on" : "off"}\n` +
       `workspace: ${basename(options.workspaceRoot)}  •  theme: ${COLORS.name}`;
   };
 
@@ -578,7 +725,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
 
   const clearTranscript = (): void => {
     resetTranscript(
-      "itemD is ready. Type / to inspect commands or enter a coding task.",
+      "itemD is ready. Type / for commands, ! for shell, or enter a coding task.",
     );
   };
 
@@ -587,6 +734,10 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   };
 
   const updateCommandPalette = (value: string): void => {
+    if (replayPickerVisible) {
+      return;
+    }
+
     visibleCommands = suggestTuiCommands(value);
     selectedCommandIndex = Math.min(
       selectedCommandIndex,
@@ -607,6 +758,38 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       .join("\n");
   };
 
+  const updateReplayPicker = (): void => {
+    const total = replayChoices.length;
+    const visibleChoices = replayChoices.slice(0, MAX_REPLAY_CHOICES);
+    commandPalette.title = " replays ";
+    commandPaletteText.content = visibleChoices
+      .map((trace, index) => {
+        const marker = index === selectedReplayIndex ? "›" : " ";
+        return `${marker} ${trace.traceId}  ${trace.modifiedAt}`;
+      })
+      .join("\n");
+    commandPalette.height = visibleChoices.length + 2;
+    commandPalette.visible = true;
+    footer.content = total > MAX_REPLAY_CHOICES
+      ? ` ↑/↓ select • Enter open • Esc close • showing newest ${MAX_REPLAY_CHOICES} of ${total} `
+      : " ↑/↓ select • Enter open • Esc close ";
+    footer.fg = COLORS.muted;
+  };
+
+  const closeReplayPicker = (): void => {
+    replayPickerVisible = false;
+    replayChoices = [];
+    selectedReplayIndex = 0;
+    commandPalette.title = " commands ";
+    commandPalette.visible = false;
+    commandPaletteText.content = "";
+
+    if (toastTimer === null && !busy) {
+      footer.content = DEFAULT_FOOTER_TEXT;
+      footer.fg = COLORS.muted;
+    }
+  };
+
   const setBusy = (
     value: boolean,
     status = "READY",
@@ -614,6 +797,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   ): void => {
     busy = value;
     stopLoader();
+    stopElapsedTimer();
 
     if (renderer.isDestroyed) {
       return;
@@ -626,13 +810,114 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       startLoader();
     }
 
+    if (value && (showLoader || status === "REPLAY" || status === "SHELL")) {
+      startElapsedTimer(
+        status === "REPLAY" ? "REPLAY" : status === "SHELL" ? "SHELL" : "ELAPSED",
+      );
+    }
+
     if (value) {
       taskInput.blur();
       taskInput.placeholder = "itemD is working…";
     } else if (!renderer.isDestroyed) {
       taskInput.placeholder = "Describe a task or type / for commands";
       taskInput.focus();
+      if (toastTimer === null) {
+        footer.content = DEFAULT_FOOTER_TEXT;
+        footer.fg = COLORS.muted;
+      }
     }
+  };
+
+  const runReplay = async (traceId: string): Promise<void> => {
+    if (activeReplayController !== null) {
+      return;
+    }
+
+    const controller = new AbortController();
+    activeReplayController = controller;
+    setBusy(true, "REPLAY");
+
+    try {
+      const result = await replayTrace(options.workspaceRoot, traceId);
+
+      if (!result.ok) {
+        appendLog("replay error  ", result.error.message, COLORS.error);
+        return;
+      }
+
+      appendLog(
+        "replay\n",
+        `trace: ${result.traceId}\n${result.events.length} events\n${streamReasoning ? "reasoning: visible" : "reasoning: hidden"}`,
+        COLORS.muted,
+      );
+
+      for (const event of result.events) {
+        if (controller.signal.aborted) {
+          appendLog("replay  ", "Replay stopped.", COLORS.warning);
+          return;
+        }
+
+        appendLog(
+          "event  ",
+          formatReplayEvent(event, streamReasoning),
+          COLORS.text,
+        );
+        await renderer.idle();
+        await new Promise<void>((resolve) => {
+          let settled = false;
+          const finish = (): void => {
+            if (settled) {
+              return;
+            }
+
+            settled = true;
+            controller.signal.removeEventListener("abort", onAbort);
+            resolve();
+          };
+          const timeout = setTimeout(finish, REPLAY_EVENT_DELAY_MS);
+          const onAbort = (): void => {
+            clearTimeout(timeout);
+            finish();
+          };
+
+          if (controller.signal.aborted) {
+            onAbort();
+          } else {
+            controller.signal.addEventListener("abort", onAbort, {
+              once: true,
+            });
+          }
+        });
+      }
+    } finally {
+      if (activeReplayController === controller) {
+        activeReplayController = null;
+      }
+
+      setBusy(false);
+    }
+  };
+
+  const selectReplay = (): void => {
+    const trace = replayChoices[selectedReplayIndex];
+
+    if (trace === undefined) {
+      closeReplayPicker();
+      return;
+    }
+
+    closeReplayPicker();
+    void runReplay(trace.traceId);
+  };
+
+  const openReplayPicker = (
+    traces: Array<{ traceId: string; modifiedAt: string }>,
+  ): void => {
+    replayChoices = traces.slice(0, MAX_REPLAY_CHOICES);
+    selectedReplayIndex = 0;
+    replayPickerVisible = true;
+    updateReplayPicker();
   };
 
   let clipboardDisposePromise: Promise<void> | null = null;
@@ -736,7 +1021,9 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   const shutdown = (): Promise<void> => {
     shutdownPromise ??= (async () => {
       activeRunController?.abort();
+      activeReplayController?.abort();
       stopLoader();
+      stopElapsedTimer();
 
       if (toastTimer !== null) {
         clearTimeout(toastTimer);
@@ -779,6 +1066,32 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       case "/config":
         appendLog("configuration\n", configurationText(active), COLORS.text);
         return;
+      case "/reasoning": {
+        const requested = words[1]?.toLowerCase();
+
+        if (
+          requested !== undefined &&
+          requested !== "on" &&
+          requested !== "off"
+        ) {
+          appendLog(
+            "usage  ",
+            "/reasoning [on|off] (toggle recorded reasoning in replays)",
+            COLORS.warning,
+          );
+          return;
+        }
+
+        streamReasoning = requested === undefined
+          ? !streamReasoning
+          : requested === "on";
+        appendLog(
+          "reasoning  ",
+          `Replay reasoning ${streamReasoning ? "enabled" : "disabled"}.`,
+          COLORS.success,
+        );
+        return;
+      }
       case "/reload":
         await reloadConfiguration();
         return;
@@ -799,13 +1112,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
           return;
         }
 
-        appendLog(
-          "replays\n",
-          result.traces
-            .map((trace) => `${trace.traceId}  ${trace.modifiedAt}`)
-            .join("\n"),
-          COLORS.text,
-        );
+        openReplayPicker(result.traces);
         return;
       }
       case "/replay": {
@@ -814,12 +1121,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
           return;
         }
 
-        const result = await replayTrace(options.workspaceRoot, words[1]);
-        appendLog(
-          "replay\n",
-          JSON.stringify(result, null, 2),
-          result.ok ? COLORS.text : COLORS.error,
-        );
+        await runReplay(words[1]);
         return;
       }
       case "/clear":
@@ -873,12 +1175,15 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       return;
     }
 
-    const isAgentTask = !line.startsWith("/");
-    const runController = isAgentTask ? new AbortController() : null;
+    const isDirectShell = line.startsWith("!");
+    const isAgentTask = !line.startsWith("/") && !isDirectShell;
+    const runController = isAgentTask || isDirectShell
+      ? new AbortController()
+      : null;
     activeRunController = runController;
     setBusy(
       true,
-      isAgentTask ? "RUNNING" : "COMMAND",
+      isAgentTask ? "RUNNING" : isDirectShell ? "SHELL" : "COMMAND",
       isAgentTask,
     );
 
@@ -888,17 +1193,51 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
         return;
       }
 
+      if (isDirectShell) {
+        const shellInput = line.slice(1).trim();
+        const shellResult = await executePrefixedShellCommand(
+          shellInput,
+          options.workspaceRoot,
+          runController?.signal,
+        );
+        appendLog(
+          "shell\n",
+          formatShellResult(shellInput, shellResult),
+          shellResult.ok ? COLORS.text : COLORS.error,
+        );
+        return;
+      }
+
       appendLog("you  ", line, COLORS.user);
       appendLog(
         "itemD  ",
         `Running with ${active.configuration.model}…`,
         COLORS.muted,
       );
+      const runOptions = {
+        ...(runController === null
+          ? {}
+          : { signal: runController.signal }),
+        tools: {
+          ...(active.webSearchProvider === undefined
+            ? {}
+            : { webSearchProvider: active.webSearchProvider }),
+        },
+        onEvent: (event: AgentRunEvent): void => {
+          if (streamReasoning && event.type === "reasoning") {
+            appendLog(
+              `reasoning step ${event.step}\n`,
+              event.text,
+              COLORS.muted,
+            );
+          }
+        },
+      };
       const result = await runAgent(
         line,
         active.adapter,
         options.workspaceRoot,
-        runController === null ? {} : { signal: runController.signal },
+        runOptions,
       );
 
       if (activeRunController === runController) {
@@ -970,11 +1309,51 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     ) {
       key.stopPropagation();
       stopLoader();
+      stopElapsedTimer();
       activeRunController.abort();
       statusText.content = "STOPPING";
       statusText.fg = COLORS.warning;
       showToast("Stopping task…", COLORS.warning);
       return;
+    }
+
+    if (
+      key.name === "escape" &&
+      activeReplayController !== null &&
+      !activeReplayController.signal.aborted
+    ) {
+      key.stopPropagation();
+      stopElapsedTimer();
+      activeReplayController.abort();
+      statusText.content = "STOPPING";
+      statusText.fg = COLORS.warning;
+      showToast("Stopping replay…", COLORS.warning);
+      return;
+    }
+
+    if (replayPickerVisible) {
+      if (key.name === "escape") {
+        key.preventDefault();
+        closeReplayPicker();
+        return;
+      }
+
+      if (key.name === "up" || key.name === "down") {
+        key.preventDefault();
+        const delta = key.name === "up" ? -1 : 1;
+        selectedReplayIndex =
+          (selectedReplayIndex + delta + replayChoices.length) %
+          replayChoices.length;
+        updateReplayPicker();
+        return;
+      }
+
+      if (key.name === "return") {
+        key.preventDefault();
+        key.stopPropagation();
+        selectReplay();
+        return;
+      }
     }
 
     if (key.name === "pageup") {
@@ -1049,6 +1428,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     process.removeListener("SIGTERM", onShutdownSignal);
     process.removeListener("SIGHUP", onShutdownSignal);
     stopLoader();
+    stopElapsedTimer();
 
     if (toastTimer !== null) {
       clearTimeout(toastTimer);

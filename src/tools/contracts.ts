@@ -1,4 +1,5 @@
 import { isRecord } from "../shared/runtime.ts";
+import { validateWebFetchUrl } from "../permissions/web-policy.ts";
 
 const MAX_TOOL_ARGUMENTS = 100;
 const MAX_ARGUMENT_CHARS = 4_096;
@@ -19,6 +20,14 @@ export type ToolCall =
       type: "shell";
       executable: string;
       args: string[];
+    }
+  | {
+      type: "web_search";
+      query: string;
+    }
+  | {
+      type: "web_fetch";
+      url: string;
     };
 
 export type ToolError = {
@@ -34,6 +43,10 @@ export type ToolError = {
     | "COMMAND_DENIED"
     | "COMMAND_CANCELLED"
     | "COMMAND_TIMED_OUT"
+    | "WEB_SEARCH_DISABLED"
+    | "WEB_SEARCH_FAILED"
+    | "WEB_FETCH_FAILED"
+    | "WEB_FETCH_URL_INVALID"
     | "PATH_OUTSIDE_WORKSPACE"
     | "PATH_BLOCKED"
     | "PATH_NOT_FOUND";
@@ -176,6 +189,58 @@ export function validateToolCall(input: unknown): ValidationResult {
           type: "shell",
           executable: input.executable,
           args: input.args,
+        },
+      };
+    }
+
+    case "web_search": {
+      if (typeof input.query !== "string") {
+        return invalidToolCall("web_search.query must be a string");
+      }
+
+      if (input.query.trim().length < 2) {
+        return invalidToolCall("web_search.query must be at least 2 characters");
+      }
+
+      if (input.query.length > 500) {
+        return invalidToolCall("web_search.query is too long");
+      }
+
+      return {
+        ok: true,
+        call: {
+          type: "web_search",
+          query: input.query.trim(),
+        },
+      };
+    }
+
+    case "web_fetch": {
+      if (typeof input.url !== "string") {
+        return invalidToolCall("web_fetch.url must be a string");
+      }
+
+      if (input.url.length === 0 || input.url.length > 2_048) {
+        return invalidToolCall("web_fetch.url must be between 1 and 2048 characters");
+      }
+
+      const urlValidation = validateWebFetchUrl(input.url);
+
+      if (!urlValidation.ok) {
+        return {
+          ok: false,
+          error: {
+            code: "WEB_FETCH_URL_INVALID",
+            message: urlValidation.message,
+          },
+        };
+      }
+
+      return {
+        ok: true,
+        call: {
+          type: "web_fetch",
+          url: input.url,
         },
       };
     }

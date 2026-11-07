@@ -89,9 +89,13 @@ Create an ignored `.env` file in the project root:
 ```dotenv
 DEEPSEEK_API_KEY=your-api-key
 DEEPSEEK_MODEL=deepseek-flash
+SERPER_API_KEY=your-serper-api-key
+ITEMD_WEB_SEARCH=true
 ```
 
 `DEEPSEEK_MODEL` is optional and defaults to `deepseek-flash`.
+`SERPER_API_KEY` enables the optional web-search provider unless
+`ITEMD_WEB_SEARCH=false` is set.
 
 Type-check every module and run the boundary tests without making a model request:
 
@@ -102,10 +106,12 @@ npm run check
 ### First launch and configuration
 
 On first launch, select the DeepSeek provider, model, and reasoning effort,
-then enter the API key through the masked setup prompt. The configuration is
-stored in the user-level itemD configuration directory. Alternatively, set
-`DEEPSEEK_API_KEY` in the environment before starting itemD; environment
-settings override the stored configuration.
+then enter the model API key through the masked setup prompt. Setup then asks
+whether to enable web search and, when enabled, collects a masked Serper API
+key. The configuration is stored in the user-level itemD configuration
+directory. Alternatively, set `DEEPSEEK_API_KEY` and `SERPER_API_KEY` in the
+environment before starting itemD; environment settings override the stored
+configuration.
 
 ## Usage
 
@@ -116,8 +122,10 @@ itemd
 ```
 
 For a development checkout, use `npm start` or `npm run tui`. On first use,
-select a provider, model, and reasoning effort, then enter the DeepSeek API key
-through the masked prompt. Enter a coding task in the bottom input:
+select a provider, model, and reasoning effort, then enter the model API key
+through the masked prompt. The wizard also lets you enable web search and save
+a masked Serper key. During `/setup`, press Enter to keep existing choices and
+credentials. Enter a coding task in the bottom input:
 
 ```text
 itemD> inspect the failing tests and make the smallest focused fix
@@ -130,12 +138,18 @@ complete a command. Drag across transcript text to copy it; the footer confirms
 the number of characters copied. While an agent task is active, the header
 shows an animated loader and Escape stops the task.
 
+To run a direct inspection command, prefix it with `!`, for example
+`!git status` or `!npm test`. Direct commands use the same workspace boundary,
+argument parsing, timeout, output limits, and shell allowlist as model-requested
+shell calls; they are never passed through a system shell.
+
 | Command | Behavior |
 | --- | --- |
 | `/help` | Show available commands |
 | `/config` | Show the active provider, model, and effort |
+| `/reasoning [on\|off]` | Toggle reasoning in live runs and replay output |
 | `/reload` | Reload the API key and model settings from config/environment |
-| `/setup` | Reconfigure provider, model, effort, and API key |
+| `/setup` | Reconfigure model and web-search credentials |
 | `/adapter` | Select an adapter; alias for `/setup` |
 | `/replays` | List recorded runs |
 | `/replay <trace-id>` | Display a recorded run without executing it |
@@ -156,10 +170,10 @@ model, credentials, and agent state are unchanged.
 The saved configuration lives outside the workspace in the user-level itemD
 configuration directory (or at `ITEMD_CONFIG_PATH`) and is written with
 user-only permissions where supported. It contains the API key, so treat that
-file as a credential. `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, and
-`DEEPSEEK_REASONING_EFFORT` override saved values; `/reload` applies changes
-without restarting the TUI. API keys are never rendered in the interface,
-traces, or replay output.
+file as a credential. `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`,
+`DEEPSEEK_REASONING_EFFORT`, `SERPER_API_KEY`, and `ITEMD_WEB_SEARCH` override
+saved values; `/reload` applies changes without restarting the TUI. API keys
+are never rendered in the interface, traces, or replay output.
 
 ## Releases
 
@@ -233,6 +247,8 @@ The original task remains in history for the whole run. DeepSeek tool-call IDs a
 | `read_file` | Read one UTF-8 workspace file |
 | `edit_file` | Replace one exact, unique text occurrence in an existing file |
 | `shell` | Run an executable and argument array accepted by the command policy |
+| `web_search` | Search the public web and return up to five normalized results |
+| `web_fetch` | Fetch bounded text from one public URL returned by search |
 
 External tool input remains `unknown` until it passes handwritten runtime validation. Expected failures use structured results rather than exceptions.
 
@@ -268,6 +284,15 @@ The command policy protects against common accidental host mutation. It is an al
 | `python`, `python3` | Version checks, `-m pytest`, and `-m unittest` |
 
 Arbitrary Node or Python evaluation, direct script execution, package installation, Git mutation, sensitive paths, absolute paths, and unsafe command options are denied.
+
+Web access:
+
+- Is disabled unless web search is enabled and a Serper API key is configured.
+- Uses Serper search and scrape endpoints through a provider boundary; the key
+  is never returned in tool output, errors, traces, or replay output.
+- Returns at most five search results with only title, URL, and snippet fields.
+- Bounds fetched page text to 20,000 normalized characters.
+- Allows only public `http` and `https` URLs without embedded credentials.
 
 ## Tracing and replay
 

@@ -31,6 +31,12 @@ export type ItemDConfiguration = {
   model: string;
   effort: ReasoningEffort;
   apiKey: string;
+  webSearch?: WebSearchConfiguration;
+};
+
+export type WebSearchConfiguration = {
+  enabled: boolean;
+  serperApiKey: string;
 };
 
 export type ConfigurationError = {
@@ -112,6 +118,50 @@ function validationError(message: string): ConfigurationError {
   };
 }
 
+function validateWebSearchConfiguration(
+  value: unknown,
+):
+  | { ok: true; configuration: WebSearchConfiguration }
+  | { ok: false; error: ConfigurationError } {
+  if (!isRecord(value)) {
+    return {
+      ok: false,
+      error: validationError(
+        "Web search configuration must be an object",
+      ),
+    };
+  }
+
+  if (typeof value.enabled !== "boolean") {
+    return {
+      ok: false,
+      error: validationError(
+        "Web search configuration must include a boolean enabled field",
+      ),
+    };
+  }
+
+  if (
+    typeof value.serperApiKey !== "string" ||
+    (value.enabled && value.serperApiKey.length === 0)
+  ) {
+    return {
+      ok: false,
+      error: validationError(
+        "Enabled web search configuration must include a Serper API key",
+      ),
+    };
+  }
+
+  return {
+    ok: true,
+    configuration: {
+      enabled: value.enabled,
+      serperApiKey: value.serperApiKey,
+    },
+  };
+}
+
 export function validateConfiguration(
   value: unknown,
 ):
@@ -145,6 +195,20 @@ export function validateConfiguration(
     };
   }
 
+  let webSearch: WebSearchConfiguration | undefined;
+
+  if (value.webSearch !== undefined) {
+    const webSearchResult = validateWebSearchConfiguration(
+      value.webSearch,
+    );
+
+    if (!webSearchResult.ok) {
+      return webSearchResult;
+    }
+
+    webSearch = webSearchResult.configuration;
+  }
+
   return {
     ok: true,
     configuration: {
@@ -153,6 +217,7 @@ export function validateConfiguration(
       model: selection.selection.model,
       effort: selection.selection.effort,
       apiKey: value.apiKey,
+      ...(webSearch === undefined ? {} : { webSearch }),
     },
   };
 }
@@ -288,6 +353,45 @@ export async function resolveConfiguration(
     };
   }
 
+  const webSearchEnvironment = env.ITEMD_WEB_SEARCH?.trim().toLowerCase();
+  const environmentWebSearchEnabled =
+    webSearchEnvironment === undefined
+      ? undefined
+      : webSearchEnvironment === "1" ||
+          webSearchEnvironment === "true" ||
+          webSearchEnvironment === "yes"
+        ? true
+        : webSearchEnvironment === "0" ||
+            webSearchEnvironment === "false" ||
+            webSearchEnvironment === "no"
+          ? false
+          : undefined;
+
+  if (
+    webSearchEnvironment !== undefined &&
+    environmentWebSearchEnabled === undefined
+  ) {
+    return {
+      ok: false,
+      error: validationError(
+        "ITEMD_WEB_SEARCH must be true, false, yes, no, 1, or 0",
+      ),
+      path: storedResult.path,
+    };
+  }
+
+  const storedWebSearch = stored?.webSearch;
+  const serperApiKey =
+    env.SERPER_API_KEY ?? storedWebSearch?.serperApiKey ?? "";
+  const webSearchEnabled =
+    environmentWebSearchEnabled ??
+    storedWebSearch?.enabled ??
+    (env.SERPER_API_KEY !== undefined && env.SERPER_API_KEY.length > 0);
+  const hasWebSearchConfiguration =
+    storedWebSearch !== undefined ||
+    env.ITEMD_WEB_SEARCH !== undefined ||
+    env.SERPER_API_KEY !== undefined;
+
   const candidate = {
     version: ITEMD_CONFIG_VERSION,
     provider: "deepseek",
@@ -300,6 +404,14 @@ export async function resolveConfiguration(
       stored?.effort ??
       DEFAULT_DEEPSEEK_EFFORT,
     apiKey,
+    ...(hasWebSearchConfiguration
+      ? {
+          webSearch: {
+            enabled: webSearchEnabled,
+            serperApiKey,
+          },
+        }
+      : {}),
   };
   const validated = validateConfiguration(candidate);
 
