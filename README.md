@@ -131,6 +131,61 @@ uploads all three binaries. If that tag already exists, no duplicate release
 is created. The binaries start the interactive OpenTUI interface; run
 `itemd --help` for the harmless smoke-test command.
 
+### Install a release
+
+Release binaries are standalone, so end users do not need Node.js, Bun, npm,
+or the itemD source tree. Download the asset for the target platform from the
+[latest GitHub Release](https://github.com/thatShashankGuy/itemD/releases/latest).
+
+Linux x64:
+
+```bash
+mkdir -p "$HOME/.local/bin"
+curl -fL https://github.com/thatShashankGuy/itemD/releases/latest/download/itemd-linux-x64 \
+  -o "$HOME/.local/bin/itemd"
+chmod +x "$HOME/.local/bin/itemd"
+export PATH="$HOME/.local/bin:$PATH"
+itemd --help
+itemd
+```
+
+macOS ARM64 (Apple Silicon):
+
+```bash
+mkdir -p "$HOME/.local/bin"
+curl -fL https://github.com/thatShashankGuy/itemD/releases/latest/download/itemd-macos-arm64 \
+  -o "$HOME/.local/bin/itemd"
+chmod +x "$HOME/.local/bin/itemd"
+export PATH="$HOME/.local/bin:$PATH"
+itemd --help
+itemd
+```
+
+Add `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc`, `~/.zshrc`, or the
+startup file for the shell you use to keep the command available in new
+terminals. The initial release does not include an Intel macOS binary.
+
+Windows x64 PowerShell:
+
+```powershell
+$installDir = Join-Path $env:LOCALAPPDATA "itemd"
+New-Item -ItemType Directory -Force $installDir | Out-Null
+Invoke-WebRequest `
+  -Uri "https://github.com/thatShashankGuy/itemD/releases/latest/download/itemd-windows-x64.exe" `
+  -OutFile (Join-Path $installDir "itemd.exe")
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+[Environment]::SetEnvironmentVariable("Path", "$userPath;$installDir", "User")
+$env:Path = "$installDir;$env:Path"
+itemd.exe --help
+itemd.exe
+```
+
+On first launch, choose the DeepSeek provider, model, and reasoning effort,
+then enter the API key through the masked setup prompt. The configuration is
+stored in the user-level itemD configuration directory. Alternatively, set
+`DEEPSEEK_API_KEY` in the environment before starting itemD; environment
+settings override the stored configuration.
+
 ## Agent flow
 
 ```mermaid
