@@ -35,6 +35,12 @@ itemd --help
 itemd
 ```
 
+Standalone binaries also support `itemd --version`, `itemd --update`, and
+`itemd --uninstall`. Update downloads the latest release for the current
+platform. Uninstall removes the binary but preserves the saved configuration,
+API key, and workspace traces; remove the PATH entry separately if you no
+longer want it in your shell.
+
 macOS ARM64 (Apple Silicon):
 
 ```bash
@@ -65,6 +71,10 @@ $env:Path = "$installDir;$env:Path"
 itemd.exe --help
 itemd.exe
 ```
+
+The same `itemd.exe --version`, `itemd.exe --update`, and
+`itemd.exe --uninstall` commands are available in PowerShell. Uninstall keeps
+the saved configuration and workspace traces.
 
 ### Development checkout
 
@@ -134,6 +144,10 @@ shows an animated loader and Escape stops the task.
 | `/theme [dark\|light]` | Switch themes; omit the argument to toggle |
 | `/quit` or `/exit` | Exit the interface |
 
+From a standalone installation, use `itemd --version` to show the installed
+release, `itemd --update` to download the latest platform binary, or
+`itemd --uninstall` to remove the binary while preserving configuration.
+
 The full-screen interface starts in dark mode. `/theme light` switches to a
 light terminal theme, `/theme dark` switches back, and `/theme` toggles the
 current theme. Theme changes affect presentation only; the active provider,
@@ -164,8 +178,8 @@ compile the TUI entrypoint into platform-specific standalone binaries:
 | Windows x64 | `itemd-windows-x64.exe` |
 
 To publish a release, update `package.json` to a new version, for example
-`0.1.1`, commit the change, and push it to `master`. The workflow
-creates the matching `v0.1.1` tag, generates GitHub release notes, and
+`0.1.2`, commit the change, and push it to `master`. The workflow
+creates the matching `v0.1.2` tag, generates GitHub release notes, and
 uploads all three binaries. If that tag already exists, no duplicate release
 is created. The binaries start the interactive OpenTUI interface; run
 `itemd --help` for the harmless smoke-test command.

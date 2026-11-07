@@ -7,3 +7,13 @@ export function isRecord(
 export function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+export function isStandaloneExecutable(): boolean {
+  const bun = (
+    globalThis as {
+      Bun?: { isStandaloneExecutable?: boolean };
+    }
+  ).Bun;
+
+  return bun?.isStandaloneExecutable === true;
+}

@@ -24,7 +24,10 @@ import {
 } from "../config/configuration.ts";
 import type { ModelAdapter } from "../model/adapter.ts";
 import { createModelAdapter } from "../model/factory.ts";
-import { getErrorMessage } from "../shared/runtime.ts";
+import {
+  getErrorMessage,
+  isStandaloneExecutable,
+} from "../shared/runtime.ts";
 import { listTraces, replayTrace } from "../telemetry/trace.ts";
 import {
   formatTuiCommandHelp,
@@ -125,6 +128,16 @@ const KEYBOARD_HELP =
   "Ctrl+Up/Down   Fine-scroll the transcript\n" +
   "Mouse drag     Select and copy transcript text\n" +
   "Ctrl+C         Exit itemD";
+
+const LOGO_ASSET_NAME = "Just_One_More_Commit.png";
+
+function logoSource(): URL {
+  const assetPath = isStandaloneExecutable()
+    ? `assets/${LOGO_ASSET_NAME}`
+    : `../../assets/${LOGO_ASSET_NAME}`;
+
+  return new URL(assetPath, import.meta.url);
+}
 
 type OpenTuiOptions = {
   workspaceRoot: string;
@@ -278,7 +291,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   });
   const logo = new ImageRenderable(renderer, {
     id: "logo",
-    source: new URL("../../assets/Just_One_More_Commit.png", import.meta.url),
+    source: logoSource(),
     width: 8,
     height: 3,
     fit: "fill",
