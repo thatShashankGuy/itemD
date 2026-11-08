@@ -13,7 +13,17 @@ export const TUI_COMMANDS = [
   {
     name: "/config",
     usage: "/config",
-    description: "Show the active provider, model, and effort",
+    description: "Show active provider, model, effort, and web search",
+  },
+  {
+    name: "/model",
+    usage: "/model [model-id]",
+    description: "Select or change the active model",
+  },
+  {
+    name: "/effort",
+    usage: "/effort [none|low|high|max]",
+    description: "Select or change reasoning effort",
   },
   {
     name: "/reasoning",
@@ -27,8 +37,8 @@ export const TUI_COMMANDS = [
   },
   {
     name: "/setup",
-    usage: "/setup",
-    description: "Reconfigure model and web-search credentials",
+    usage: "/setup [browser]",
+    description: "Open the in-app menu or browser credential setup",
   },
   {
     name: "/adapter",

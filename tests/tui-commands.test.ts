@@ -27,6 +27,11 @@ describe("TUI slash commands", () => {
     expect(help).toContain("Toggle reasoning in live runs");
     expect(help).toContain("/adapter");
     expect(help).toContain("Select a model adapter");
+    expect(help).toContain("/model [model-id]");
+    expect(help).toContain("Select or change the active model");
+    expect(help).toContain("/effort [none|low|high|max]");
+    expect(help).toContain("Select or change reasoning effort");
+    expect(help).toContain("/setup [browser]");
     expect(help).toContain("/new");
     expect(help).toContain("Start a new session");
     expect(help).toContain("/theme [dark|light]");

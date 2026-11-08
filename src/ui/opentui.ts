@@ -22,10 +22,14 @@ import {
 } from "../agent/runner.ts";
 import {
   resolveConfiguration,
+  readConfiguration,
+  writeConfiguration,
   type ConfigurationOptions,
   type ItemDConfiguration,
 } from "../config/configuration.ts";
+import { runBrowserSetup } from "../config/browser-setup.ts";
 import type { ModelAdapter } from "../model/adapter.ts";
+import { PROVIDER_CATALOG } from "../model/catalog.ts";
 import { createModelAdapter } from "../model/factory.ts";
 import {
   getErrorMessage,
@@ -49,10 +53,6 @@ import {
   executePrefixedShellCommand,
   formatShellResult,
 } from "./shell.ts";
-import {
-  runSetup,
-  TerminalTuiIO,
-} from "./setup.ts";
 
 type ThemeName = "dark" | "light";
 
@@ -262,6 +262,31 @@ type ActiveConfiguration = {
   webSearchProvider?: SearchProvider;
 };
 
+function createActiveConfiguration(
+  configuration: ItemDConfiguration,
+): { ok: true; active: ActiveConfiguration } | { ok: false; message: string } {
+  const adapterResult = createModelAdapter(configuration);
+
+  if (!adapterResult.ok) {
+    return { ok: false, message: adapterResult.error.message };
+  }
+
+  const webSearchProvider = configuration.webSearch?.enabled === true
+    ? createSerperSearchProvider({
+        apiKey: configuration.webSearch.serperApiKey,
+      })
+    : undefined;
+
+  return {
+    ok: true,
+    active: {
+      configuration,
+      adapter: adapterResult.adapter,
+      ...(webSearchProvider === undefined ? {} : { webSearchProvider }),
+    },
+  };
+}
+
 async function loadActiveConfiguration(
   config: ConfigurationOptions,
 ): Promise<
@@ -281,27 +306,7 @@ async function loadActiveConfiguration(
     };
   }
 
-  const adapterResult = createModelAdapter(result.configuration);
-
-  if (!adapterResult.ok) {
-    return { ok: false, message: adapterResult.error.message };
-  }
-
-  const webSearchProvider =
-    result.configuration.webSearch?.enabled === true
-      ? createSerperSearchProvider({
-          apiKey: result.configuration.webSearch.serperApiKey,
-        })
-      : undefined;
-
-  return {
-    ok: true,
-    active: {
-      configuration: result.configuration,
-      adapter: adapterResult.adapter,
-      ...(webSearchProvider === undefined ? {} : { webSearchProvider }),
-    },
-  };
+  return createActiveConfiguration(result.configuration);
 }
 
 async function runInitialSetup(
@@ -313,18 +318,11 @@ async function runInitialSetup(
     return existing.active;
   }
 
-  const io = new TerminalTuiIO();
-  io.write(`[configuration] ${existing.message}\n`);
+  const result = await runBrowserSetup({ config });
 
-  try {
-    const result = await runSetup(io, config);
-
-    if (result.status !== "saved") {
-      io.write("Goodbye.\n");
-      return null;
-    }
-  } finally {
-    io.close();
+  if (result.status !== "saved") {
+    process.stderr.write(`[configuration] ${result.status === "failed" ? result.message : "Setup cancelled."}\n`);
+    return null;
   }
 
   const configured = await loadActiveConfiguration(config);
@@ -555,7 +553,15 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   let busy = false;
   let activeRunController: AbortController | null = null;
   let activeReplayController: AbortController | null = null;
+  let activeSetupController: AbortController | null = null;
   let replayPickerVisible = false;
+  type ConfigurationMenu =
+    | { level: "root" }
+    | { level: "model" }
+    | { level: "effort" };
+  let configurationMenu: ConfigurationMenu | null = null;
+  let configurationChoices: Array<{ label: string; detail: string }> = [];
+  let selectedConfigurationIndex = 0;
   let replayChoices: Array<{
     traceId: string;
     modifiedAt: string;
@@ -790,6 +796,96 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     }
   };
 
+  const closeConfigurationMenu = (): void => {
+    configurationMenu = null;
+    configurationChoices = [];
+    selectedConfigurationIndex = 0;
+    commandPalette.title = " commands ";
+    commandPalette.visible = false;
+    commandPaletteText.content = "";
+
+    if (toastTimer === null && !busy) {
+      footer.content = DEFAULT_FOOTER_TEXT;
+      footer.fg = COLORS.muted;
+    }
+  };
+
+  const updateConfigurationMenu = (): void => {
+    if (configurationMenu === null) {
+      return;
+    }
+
+    const provider = PROVIDER_CATALOG.find(
+      (candidate) => candidate.id === active.configuration.provider && candidate.enabled,
+    ) ?? PROVIDER_CATALOG[0];
+
+    if (!provider.enabled) {
+      return;
+    }
+
+    if (configurationMenu.level === "root") {
+      configurationChoices = [
+        {
+          label: "Model",
+          detail: `Current: ${active.configuration.model}`,
+        },
+        {
+          label: "Reasoning effort",
+          detail: `Current: ${active.configuration.effort}`,
+        },
+        {
+          label: "Open browser setup",
+          detail: "API keys, Serper key, and all model settings",
+        },
+        { label: "Cancel", detail: "Return to the task input" },
+      ];
+    } else if (configurationMenu.level === "model") {
+      configurationChoices = [
+        ...provider.models.map((model) => ({
+          label: model.displayName,
+          detail: model.id === active.configuration.model ? "Current" : model.id,
+        })),
+        { label: "Back", detail: "Return to configuration" },
+      ];
+    } else {
+      configurationChoices = [
+        ...provider.reasoningEfforts.map((effort) => ({
+          label: effort.displayName,
+          detail: effort.id === active.configuration.effort ? "Current" : effort.id,
+        })),
+        { label: "Back", detail: "Return to configuration" },
+      ];
+    }
+
+    selectedConfigurationIndex = Math.min(
+      selectedConfigurationIndex,
+      Math.max(configurationChoices.length - 1, 0),
+    );
+    commandPalette.title = configurationMenu.level === "root"
+      ? " configuration "
+      : configurationMenu.level === "model"
+        ? " model "
+        : " reasoning effort ";
+    commandPaletteText.content = configurationChoices
+      .map((choice, index) => {
+        const marker = index === selectedConfigurationIndex ? "›" : " ";
+        return `${marker} ${choice.label.padEnd(24)} ${choice.detail}`;
+      })
+      .join("\n");
+    commandPalette.height = configurationChoices.length + 2;
+    commandPalette.visible = true;
+    footer.content = " ↑/↓ select • Enter choose • Esc close ";
+    footer.fg = COLORS.muted;
+  };
+
+  const openConfigurationMenu = (
+    level: ConfigurationMenu["level"] = "root",
+  ): void => {
+    configurationMenu = { level };
+    selectedConfigurationIndex = 0;
+    updateConfigurationMenu();
+  };
+
   const setBusy = (
     value: boolean,
     status = "READY",
@@ -986,31 +1082,152 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     );
   };
 
-  const rerunSetup = async (): Promise<void> => {
-    statusText.content = "SETUP";
-    await renderer.idle();
-    await renderer.suspend();
-    const io = new TerminalTuiIO();
-    let setupStatus: "saved" | "cancelled" | "failed" = "failed";
+  const applyConfigurationSelection = async (
+    selection: Partial<Pick<ItemDConfiguration, "model" | "effort">>,
+  ): Promise<void> => {
+    const candidate: ItemDConfiguration = {
+      ...active.configuration,
+      ...selection,
+    };
+    const storedResult = await readConfiguration(options.config);
 
-    try {
-      const result = await runSetup(io, options.config);
-      setupStatus = result.status;
-    } finally {
-      io.close();
-      await renderer.resume();
+    if (!storedResult.ok) {
+      appendLog("configuration error  ", storedResult.error.message, COLORS.error);
+      return;
     }
 
-    if (setupStatus !== "saved") {
+    if (storedResult.configuration === null) {
+      const replacement = createActiveConfiguration(candidate);
+
+      if (!replacement.ok) {
+        appendLog("configuration error  ", replacement.message, COLORS.error);
+        return;
+      }
+
+      active = replacement.active;
+      updateHeader();
       appendLog(
         "configuration  ",
-        "Setup cancelled. Keeping the previous configuration.",
-        COLORS.warning,
+        "Updated for this session. Add a saved configuration through /setup browser.",
+        COLORS.success,
       );
       return;
     }
 
-    await reloadConfiguration();
+    const writeResult = await writeConfiguration(
+      {
+        ...storedResult.configuration,
+        ...selection,
+      },
+      options.config,
+    );
+
+    if (!writeResult.ok) {
+      appendLog("configuration error  ", writeResult.error.message, COLORS.error);
+      return;
+    }
+
+    const replacement = await loadActiveConfiguration(options.config);
+
+    if (!replacement.ok) {
+      appendLog("configuration error  ", replacement.message, COLORS.error);
+      return;
+    }
+
+    active = replacement.active;
+    updateHeader();
+    appendLog("configuration  ", "Saved and applied.", COLORS.success);
+  };
+
+  const openBrowserConfiguration = async (): Promise<void> => {
+    closeConfigurationMenu();
+    setBusy(true, "SETUP");
+    const controller = new AbortController();
+    activeSetupController = controller;
+
+    try {
+      const result = await runBrowserSetup({
+        config: options.config,
+        initialConfiguration: active.configuration,
+        signal: controller.signal,
+      });
+
+      if (result.status === "saved") {
+        await reloadConfiguration();
+      } else if (result.status === "cancelled") {
+        appendLog("configuration  ", "Setup cancelled. Keeping the previous configuration.", COLORS.warning);
+      } else {
+        appendLog("configuration error  ", result.message, COLORS.error);
+      }
+    } finally {
+      if (activeSetupController === controller) {
+        activeSetupController = null;
+      }
+      setBusy(false);
+    }
+  };
+
+  const selectConfigurationChoice = async (): Promise<void> => {
+    const choice = configurationChoices[selectedConfigurationIndex];
+
+    if (configurationMenu === null || choice === undefined) {
+      return;
+    }
+
+    if (configurationMenu.level === "root") {
+      if (choice.label === "Model") {
+        configurationMenu = { level: "model" };
+        selectedConfigurationIndex = 0;
+        updateConfigurationMenu();
+      } else if (choice.label === "Reasoning effort") {
+        configurationMenu = { level: "effort" };
+        selectedConfigurationIndex = 0;
+        updateConfigurationMenu();
+      } else if (choice.label === "Open browser setup") {
+        await openBrowserConfiguration();
+      } else {
+        closeConfigurationMenu();
+      }
+      return;
+    }
+
+    if (choice.label === "Back") {
+      configurationMenu = { level: "root" };
+      selectedConfigurationIndex = 0;
+      updateConfigurationMenu();
+      return;
+    }
+
+    const provider = PROVIDER_CATALOG.find(
+      (candidate) => candidate.id === active.configuration.provider && candidate.enabled,
+    ) ?? PROVIDER_CATALOG[0];
+
+    if (!provider.enabled) {
+      closeConfigurationMenu();
+      return;
+    }
+
+    const selected = configurationMenu.level === "model"
+      ? provider.models.find((candidate) => candidate.displayName === choice.label)
+      : provider.reasoningEfforts.find((candidate) => candidate.displayName === choice.label);
+
+    if (selected === undefined) {
+      return;
+    }
+
+    const selectionLevel = configurationMenu.level;
+    closeConfigurationMenu();
+    setBusy(true, "CONFIG");
+
+    try {
+      await applyConfigurationSelection(
+        selectionLevel === "model"
+          ? { model: selected.id }
+          : { effort: selected.id as ItemDConfiguration["effort"] },
+      );
+    } finally {
+      setBusy(false);
+    }
   };
 
   const destroyed = new Promise<void>((resolve) => {
@@ -1022,6 +1239,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     shutdownPromise ??= (async () => {
       activeRunController?.abort();
       activeReplayController?.abort();
+      activeSetupController?.abort();
       stopLoader();
       stopElapsedTimer();
 
@@ -1097,8 +1315,74 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
         return;
       case "/setup":
       case "/adapter":
-        await rerunSetup();
+        if (words[1] === "browser") {
+          await openBrowserConfiguration();
+        } else if (words.length > 1) {
+          appendLog("usage  ", "/setup [browser]", COLORS.warning);
+        } else {
+          openConfigurationMenu();
+        }
         return;
+      case "/model": {
+        const provider = PROVIDER_CATALOG.find(
+          (candidate) => candidate.id === active.configuration.provider && candidate.enabled,
+        ) ?? PROVIDER_CATALOG[0];
+        const requested = words[1];
+
+        if (!provider.enabled) {
+          appendLog("configuration error  ", "The active provider is disabled.", COLORS.error);
+          return;
+        }
+
+        if (requested === undefined) {
+          openConfigurationMenu("model");
+          return;
+        }
+
+        const model = provider.models.find((candidate) => candidate.id === requested);
+
+        if (model === undefined || words.length > 2) {
+          appendLog(
+            "usage  ",
+            `/model <${provider.models.map((candidate) => candidate.id).join("|")}>`,
+            COLORS.warning,
+          );
+          return;
+        }
+
+        await applyConfigurationSelection({ model: model.id });
+        return;
+      }
+      case "/effort": {
+        const provider = PROVIDER_CATALOG.find(
+          (candidate) => candidate.id === active.configuration.provider && candidate.enabled,
+        ) ?? PROVIDER_CATALOG[0];
+        const requested = words[1];
+
+        if (!provider.enabled) {
+          appendLog("configuration error  ", "The active provider is disabled.", COLORS.error);
+          return;
+        }
+
+        if (requested === undefined) {
+          openConfigurationMenu("effort");
+          return;
+        }
+
+        const effort = provider.reasoningEfforts.find((candidate) => candidate.id === requested);
+
+        if (effort === undefined || words.length > 2) {
+          appendLog(
+            "usage  ",
+            `/effort <${provider.reasoningEfforts.map((candidate) => candidate.id).join("|")}>`,
+            COLORS.warning,
+          );
+          return;
+        }
+
+        await applyConfigurationSelection({ effort: effort.id });
+        return;
+      }
       case "/replays": {
         const result = await listTraces(options.workspaceRoot);
 
@@ -1329,6 +1613,37 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       statusText.fg = COLORS.warning;
       showToast("Stopping replay…", COLORS.warning);
       return;
+    }
+
+    if (configurationMenu !== null) {
+      if (key.name === "escape") {
+        key.preventDefault();
+        if (configurationMenu.level === "root") {
+          closeConfigurationMenu();
+        } else {
+          configurationMenu = { level: "root" };
+          selectedConfigurationIndex = 0;
+          updateConfigurationMenu();
+        }
+        return;
+      }
+
+      if (key.name === "up" || key.name === "down") {
+        key.preventDefault();
+        const delta = key.name === "up" ? -1 : 1;
+        selectedConfigurationIndex =
+          (selectedConfigurationIndex + delta + configurationChoices.length) %
+          configurationChoices.length;
+        updateConfigurationMenu();
+        return;
+      }
+
+      if (key.name === "return") {
+        key.preventDefault();
+        key.stopPropagation();
+        void selectConfigurationChoice();
+        return;
+      }
     }
 
     if (replayPickerVisible) {
