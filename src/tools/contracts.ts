@@ -4,6 +4,7 @@ import { validateWebFetchUrl } from "../permissions/web-policy.ts";
 const MAX_TOOL_ARGUMENTS = 100;
 const MAX_ARGUMENT_CHARS = 4_096;
 const MAX_EDIT_TEXT_CHARS = 200_000;
+const MAX_SEARCH_QUERY_CHARS = 500;
 
 export type ToolCall =
   | {
@@ -11,10 +12,28 @@ export type ToolCall =
       path: string;
     }
   | {
+      type: "write_file";
+      path: string;
+      content: string;
+    }
+  | {
       type: "edit_file";
       path: string;
       oldText: string;
       newText: string;
+    }
+  | {
+      type: "delete_file";
+      path: string;
+    }
+  | {
+      type: "list_files";
+      path?: string;
+    }
+  | {
+      type: "search_files";
+      query: string;
+      path?: string;
     }
   | {
       type: "shell";
@@ -36,9 +55,13 @@ export type ToolError = {
     | "EDIT_TEXT_NOT_FOUND"
     | "EDIT_TEXT_NOT_UNIQUE"
     | "FILE_READ_FAILED"
+    | "FILE_WRITE_FAILED"
     | "FILE_EDIT_FAILED"
+    | "FILE_DELETE_FAILED"
     | "FILE_NOT_REGULAR"
     | "FILE_TOO_LARGE"
+    | "DIRECTORY_READ_FAILED"
+    | "SEARCH_FAILED"
     | "COMMAND_FAILED"
     | "COMMAND_DENIED"
     | "COMMAND_CANCELLED"
@@ -123,6 +146,31 @@ export function validateToolCall(input: unknown): ValidationResult {
       };
     }
 
+    case "write_file": {
+      if (typeof input.path !== "string" || typeof input.content !== "string") {
+        return invalidToolCall(
+          "write_file requires string path and content",
+        );
+      }
+
+      if (input.path.trim().length === 0) {
+        return invalidToolCall("write_file.path must not be empty");
+      }
+
+      if (input.content.length > MAX_EDIT_TEXT_CHARS) {
+        return invalidToolCall("write_file.content exceeds the allowed size");
+      }
+
+      return {
+        ok: true,
+        call: {
+          type: "write_file",
+          path: input.path,
+          content: input.content,
+        },
+      };
+    }
+
     case "edit_file": {
       if (
         typeof input.path !== "string" ||
@@ -156,6 +204,74 @@ export function validateToolCall(input: unknown): ValidationResult {
           path: input.path,
           oldText: input.oldText,
           newText: input.newText,
+        },
+      };
+    }
+
+    case "delete_file": {
+      if (typeof input.path !== "string") {
+        return invalidToolCall("delete_file.path must be a string");
+      }
+
+      if (input.path.trim().length === 0) {
+        return invalidToolCall("delete_file.path must not be empty");
+      }
+
+      return {
+        ok: true,
+        call: {
+          type: "delete_file",
+          path: input.path,
+        },
+      };
+    }
+
+    case "list_files": {
+      if (input.path !== undefined && typeof input.path !== "string") {
+        return invalidToolCall("list_files.path must be a string when provided");
+      }
+
+      if (typeof input.path === "string" && input.path.trim().length === 0) {
+        return invalidToolCall("list_files.path must not be empty");
+      }
+
+      return {
+        ok: true,
+        call: {
+          type: "list_files",
+          ...(input.path === undefined ? {} : { path: input.path }),
+        },
+      };
+    }
+
+    case "search_files": {
+      if (typeof input.query !== "string") {
+        return invalidToolCall("search_files.query must be a string");
+      }
+
+      if (
+        input.query.trim().length < 1 ||
+        input.query.length > MAX_SEARCH_QUERY_CHARS
+      ) {
+        return invalidToolCall(
+          `search_files.query must be between 1 and ${MAX_SEARCH_QUERY_CHARS} characters`,
+        );
+      }
+
+      if (input.path !== undefined && typeof input.path !== "string") {
+        return invalidToolCall("search_files.path must be a string when provided");
+      }
+
+      if (typeof input.path === "string" && input.path.trim().length === 0) {
+        return invalidToolCall("search_files.path must not be empty");
+      }
+
+      return {
+        ok: true,
+        call: {
+          type: "search_files",
+          query: input.query,
+          ...(input.path === undefined ? {} : { path: input.path }),
         },
       };
     }

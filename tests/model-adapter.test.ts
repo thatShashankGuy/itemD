@@ -218,7 +218,11 @@ describe("DeepSeek adapter requests", () => {
 
     expect(requestBody?.tools?.map((tool) => tool.function?.name)).toEqual([
       "read_file",
+      "write_file",
       "edit_file",
+      "delete_file",
+      "list_files",
+      "search_files",
       "shell",
       "web_search",
       "web_fetch",
