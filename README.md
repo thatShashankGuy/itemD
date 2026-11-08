@@ -209,8 +209,8 @@ compile the TUI entrypoint into platform-specific standalone binaries:
 | Windows x64 | `itemd-windows-x64.exe` |
 
 To publish a release, update `package.json` to a new version, for example
-`0.1.4`, commit the change, and push it to `master`. The workflow
-creates the matching `v0.1.4` tag, generates GitHub release notes, and
+`0.1.5`, commit the change, and push it to `master`. The workflow
+creates the matching `v0.1.5` tag, generates GitHub release notes, and
 uploads all three binaries. If that tag already exists, no duplicate release
 is created. The binaries start the interactive OpenTUI interface; run
 `itemd --help` for the harmless smoke-test command.
@@ -239,7 +239,7 @@ flowchart TD
     Validate -->|File tool| Workspace["Workspace and symlink checks"]
     Validate -->|Shell tool| Policy["Command allowlist policy"]
 
-    Workspace --> FileTool["Read or exact edit"]
+    Workspace --> FileTool["Read, write, exact edit, list, search, or delete"]
     Policy --> Command["Bounded command runner"]
     FileTool --> Observation
     Command --> Observation
@@ -262,7 +262,11 @@ The original task remains in history for the whole run. DeepSeek tool-call IDs a
 | Tool | Purpose |
 | --- | --- |
 | `read_file` | Read one UTF-8 workspace file |
+| `write_file` | Create a file or replace an existing regular file with complete UTF-8 content |
 | `edit_file` | Replace one exact, unique text occurrence in an existing file |
+| `delete_file` | Delete one existing regular workspace file |
+| `list_files` | List immediate files and directories in a workspace directory |
+| `search_files` | Search workspace text files for a literal string with paths and line numbers |
 | `shell` | Run an executable and argument array accepted by the command policy |
 | `web_search` | Search the public web and return up to five normalized results |
 | `web_fetch` | Fetch bounded text from one public URL returned by search |

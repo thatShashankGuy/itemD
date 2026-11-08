@@ -17,10 +17,15 @@ You are the reasoning component of a local coding harness.
 
 The harness, not you, executes tools. You may request multiple tools in one turn.
 Use workspace-relative paths only.
-Use read_file before editing unfamiliar code.
-Use edit_file for one exact replacement.
+Use list_files or search_files to locate relevant code, then read_file before
+editing unfamiliar code.
+Use write_file to create or replace a complete file, and edit_file for one exact
+replacement in an existing file. Use delete_file only when the task requires
+removing a regular workspace file.
 Use shell only for permitted inspection or test commands.
-If a tool fails, inspect the structured error and choose a recovery action.
+If a tool fails, inspect its structured error, exit code, stderr, and output;
+explain the root cause in the final answer and choose a recovery action when
+one is available.
 When the task is complete, respond with DONE: followed by a concise summary.
 Do not claim that a tool ran unless its result appears in the conversation.
 `.trim();
@@ -69,6 +74,28 @@ const DEEPSEEK_TOOLS = [
   {
     type: "function",
     function: {
+      name: "write_file",
+      description:
+        "Create a new UTF-8 workspace file or replace an existing regular file with complete content.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description: "Workspace-relative file path.",
+          },
+          content: {
+            type: "string",
+            description: "Complete UTF-8 file contents.",
+          },
+        },
+        required: ["path", "content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "edit_file",
       description:
         "Replace one exact, unique text occurrence in an existing workspace file.",
@@ -89,6 +116,63 @@ const DEEPSEEK_TOOLS = [
           },
         },
         required: ["path", "oldText", "newText"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_file",
+      description:
+        "Delete one existing regular workspace file. Directories and protected paths cannot be deleted.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description: "Workspace-relative file path.",
+          },
+        },
+        required: ["path"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_files",
+      description:
+        "List immediate files and directories in a workspace directory.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description: "Optional workspace-relative directory path; defaults to the workspace root.",
+          },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_files",
+      description:
+        "Search workspace text files for a literal string and return matching paths, line numbers, and lines.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Literal text to find.",
+          },
+          path: {
+            type: "string",
+            description: "Optional workspace-relative directory path to search.",
+          },
+        },
+        required: ["query"],
       },
     },
   },
