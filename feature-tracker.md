@@ -3,11 +3,13 @@
 This document tracks only unfinished or planned work. Completed features are
 removed instead of being retained as a historical checklist.
 
-## Next: Provider slice finalization
+## Current: Browser UI workflow
 
-- [ ] Resolve configuration through the shared configuration module in the
-  one-shot CLI.
-- [ ] Preserve environment-only DeepSeek setup and stored TUI configuration.
-- [ ] Keep replay independent from provider credentials.
-- [ ] Finish provider/configuration documentation and final verification.
-- [ ] Perform one live, read-only DeepSeek tool run after mocked checks pass.
+The browser setup page and OpenTUI configuration workflow are implemented.
+The full browser workspace now serves the itemD logo, transcript, task input,
+shell commands, slash commands, replay access, configuration controls, and
+live run status through `itemd --web`.
+
+Remaining acceptance work:
+
+- [ ] Exercise the web UI with a live read-only DeepSeek tool run.

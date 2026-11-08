@@ -105,13 +105,16 @@ npm run check
 
 ### First launch and configuration
 
-On first launch, select the DeepSeek provider, model, and reasoning effort,
-then enter the model API key through the masked setup prompt. Setup then asks
-whether to enable web search and, when enabled, collects a masked Serper API
-key. The configuration is stored in the user-level itemD configuration
-directory. Alternatively, set `DEEPSEEK_API_KEY` and `SERPER_API_KEY` in the
-environment before starting itemD; environment settings override the stored
-configuration.
+When no usable configuration is found, itemD starts a short-lived local setup
+page in your browser. It collects the DeepSeek model, reasoning effort, model
+API key, and optional Serper API key, then returns you to the OpenTUI session.
+The page listens only on `127.0.0.1`, uses a random one-time URL token, and
+does not put credentials in the URL or logs. The configuration is stored in
+the user-level itemD configuration directory.
+
+You can also set `DEEPSEEK_API_KEY` and `SERPER_API_KEY` in the environment
+before starting itemD; environment settings override stored values. Use
+`/setup browser` to reopen the local setup page from an active session.
 
 ## Usage
 
@@ -121,11 +124,20 @@ Start the installed binary:
 itemd
 ```
 
+To use the browser interface instead of OpenTUI, run:
+
+```bash
+itemd --web
+```
+
+This starts a loopback-only web server, opens the full itemD workspace in your
+default browser, and keeps the server alive until itemD exits. The web session
+uses a random URL token; it is intended for the local machine and should not
+be exposed through a proxy or shared network address.
+
 For a development checkout, use `npm start` or `npm run tui`. On first use,
-select a provider, model, and reasoning effort, then enter the model API key
-through the masked prompt. The wizard also lets you enable web search and save
-a masked Serper key. During `/setup`, press Enter to keep existing choices and
-credentials. Enter a coding task in the bottom input:
+itemD opens the local browser setup page described above. Enter a coding task
+in the bottom input:
 
 ```text
 itemD> inspect the failing tests and make the smallest focused fix
@@ -146,11 +158,14 @@ shell calls; they are never passed through a system shell.
 | Command | Behavior |
 | --- | --- |
 | `/help` | Show available commands |
-| `/config` | Show the active provider, model, and effort |
+| `/config` | Show the active provider, model, effort, and web search |
+| `/model [model-id]` | Select or change the active model |
+| `/effort [none\|low\|high\|max]` | Select or change reasoning effort |
 | `/reasoning [on\|off]` | Toggle reasoning in live runs and replay output |
 | `/reload` | Reload the API key and model settings from config/environment |
-| `/setup` | Reconfigure model and web-search credentials |
-| `/adapter` | Select an adapter; alias for `/setup` |
+| `/setup` | Open the in-app configuration menu |
+| `/setup browser` | Open browser setup for keys and all configuration |
+| `/adapter` | Alias for `/setup` |
 | `/replays` | List recorded runs |
 | `/replay <trace-id>` | Display a recorded run without executing it |
 | `/clear` | Clear the terminal |
@@ -172,8 +187,10 @@ configuration directory (or at `ITEMD_CONFIG_PATH`) and is written with
 user-only permissions where supported. It contains the API key, so treat that
 file as a credential. `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`,
 `DEEPSEEK_REASONING_EFFORT`, `SERPER_API_KEY`, and `ITEMD_WEB_SEARCH` override
-saved values; `/reload` applies changes without restarting the TUI. API keys
-are never rendered in the interface, traces, or replay output.
+saved values; `/reload` applies changes without restarting the TUI. Model and
+reasoning changes made with `/model` and `/effort` are saved when a stored
+configuration is available. API keys are never rendered in the interface,
+traces, or replay output.
 
 ## Releases
 
@@ -367,4 +384,4 @@ The core remains framework-light: plain functions, explicit types, Node.js built
 - Each TUI task starts a new run; there is no persistent cross-task memory.
 - Replay displays recorded events but does not filter or summarize them.
 - Trace write failures surface as top-level harness failures.
-- There is no container isolation, confirmation workflow, browser automation, web UI, or multi-agent system.
+- There is no container isolation, confirmation workflow, browser automation, or multi-agent system.
