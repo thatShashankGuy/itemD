@@ -209,8 +209,8 @@ compile the TUI entrypoint into platform-specific standalone binaries:
 | Windows x64 | `itemd-windows-x64.exe` |
 
 To publish a release, update `package.json` to a new version, for example
-`0.1.3`, commit the change, and push it to `master`. The workflow
-creates the matching `v0.1.3` tag, generates GitHub release notes, and
+`0.1.4`, commit the change, and push it to `master`. The workflow
+creates the matching `v0.1.4` tag, generates GitHub release notes, and
 uploads all three binaries. If that tag already exists, no duplicate release
 is created. The binaries start the interactive OpenTUI interface; run
 `itemd --help` for the harmless smoke-test command.

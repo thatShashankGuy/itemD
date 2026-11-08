@@ -245,6 +245,10 @@ Never implement safety as prompt text alone. Enforcement belongs in deterministi
 - Never commit or push without explicit confirmation for a materially
   different action; the session's requested branch push is the expected
   handoff.
+- Before raising a pull request, bump the package version for the release
+  represented by that PR and keep `package.json`, `package-lock.json`, and
+  release-version documentation synchronized. Do this by default for every
+  PR unless the user explicitly asks not to bump the version.
 
 ## Testing and Evaluation
 
