@@ -39,6 +39,7 @@ export type ToolCall =
       type: "shell";
       executable: string;
       args: string[];
+      pty?: boolean;
     }
   | {
       type: "web_search";
@@ -64,6 +65,7 @@ export type ToolError = {
     | "SEARCH_FAILED"
     | "COMMAND_FAILED"
     | "COMMAND_DENIED"
+    | "COMMAND_APPROVAL_REQUIRED"
     | "COMMAND_CANCELLED"
     | "COMMAND_TIMED_OUT"
     | "WEB_SEARCH_DISABLED"
@@ -299,12 +301,17 @@ export function validateToolCall(input: unknown): ValidationResult {
         return invalidToolCall("A shell argument exceeds the allowed size");
       }
 
+      if (input.pty !== undefined && typeof input.pty !== "boolean") {
+        return invalidToolCall("shell.pty must be a boolean when provided");
+      }
+
       return {
         ok: true,
         call: {
           type: "shell",
           executable: input.executable,
           args: input.args,
+          ...(input.pty === undefined ? {} : { pty: input.pty }),
         },
       };
     }

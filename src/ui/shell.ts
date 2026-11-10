@@ -28,6 +28,7 @@ export async function executePrefixedShellCommand(
     },
     workspaceRoot,
     signal,
+    { shellMode: "auto" },
   ) as Promise<ToolResult<CommandResult>>;
 }
 

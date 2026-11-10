@@ -45,6 +45,12 @@ export type ModelCallResult =
     }
   | { ok: false; error: ModelError };
 
+export type ModelStreamEvent =
+  | { type: "text_delta"; text: string }
+  | { type: "reasoning_delta"; text: string }
+  | { type: "completed"; result: Extract<ModelCallResult, { ok: true }> }
+  | { type: "failed"; error: ModelError };
+
 export type ModelMetadata = {
   provider: ProviderId;
   model: string;

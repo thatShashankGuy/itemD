@@ -19,6 +19,10 @@ import {
 } from "./contracts.ts";
 import { validateShellPolicy } from "../permissions/shell-policy.ts";
 import {
+  ShellApprovalController,
+  type ShellExecutionMode,
+} from "../permissions/shell-approval.ts";
+import {
   checkRegularFile,
   MAX_FILE_BYTES,
   resolveWorkspaceDirectory,
@@ -43,8 +47,27 @@ type SearchMatch = {
 };
 
 export type ToolExecutionOptions = {
+  onActivity?: (activity: ToolExecutionActivity) => void | Promise<void>;
+  shellApproval?: ShellApprovalController;
+  shellMode?: ShellExecutionMode;
   webSearchProvider?: SearchProvider;
 };
+
+export type ToolExecutionActivity = {
+  phase: "waiting_for_approval" | "executing_tool";
+  message: string;
+};
+
+async function emitToolActivity(
+  options: ToolExecutionOptions,
+  activity: ToolExecutionActivity,
+): Promise<void> {
+  try {
+    await options.onActivity?.(activity);
+  } catch {
+    // Activity reporting must not change the tool's execution result.
+  }
+}
 
 async function executeReadFile(
   call: Extract<ToolCall, { type: "read_file" }>,
@@ -458,12 +481,62 @@ async function executeShell(
   call: Extract<ToolCall, { type: "shell" }>,
   workspaceRoot: string,
   signal?: AbortSignal,
+  options: ToolExecutionOptions = {},
 ): Promise<ToolResult<CommandResult>> {
   const policy = validateShellPolicy(call);
 
   if (!policy.ok) {
     return policy;
   }
+
+  if ((options.shellMode ?? "ask") === "ask") {
+    await emitToolActivity(options, {
+      phase: "waiting_for_approval",
+      message: `Waiting for approval to run ${call.executable}`,
+    });
+
+    if (options.shellApproval === undefined) {
+      return {
+        ok: false,
+        error: {
+          code: "COMMAND_APPROVAL_REQUIRED",
+          message: "Shell command requires user approval",
+          details: { executable: call.executable, args: call.args },
+        },
+      };
+    }
+
+    let approved: boolean;
+    try {
+      approved = await options.shellApproval.authorize({
+        call,
+        workspaceRoot,
+      }, signal);
+    } catch {
+      return {
+        ok: false,
+        error: {
+          code: "COMMAND_DENIED",
+          message: "Shell command approval failed",
+        },
+      };
+    }
+
+    if (!approved) {
+      return {
+        ok: false,
+        error: {
+          code: "COMMAND_DENIED",
+          message: "Shell command was not approved",
+        },
+      };
+    }
+  }
+
+  await emitToolActivity(options, {
+    phase: "executing_tool",
+    message: `Running ${call.executable}`,
+  });
 
   const result = await executeCommand(
     call.executable,
@@ -472,6 +545,7 @@ async function executeShell(
     COMMAND_TIMEOUT_MS,
     undefined,
     signal,
+    call.pty ?? false,
   );
 
   if (!result.ok) {
@@ -599,7 +673,7 @@ export async function executeTool(
       return executeSearchFiles(validation.call, workspaceRoot);
 
     case "shell":
-      return executeShell(validation.call, workspaceRoot, signal);
+      return executeShell(validation.call, workspaceRoot, signal, options);
 
     case "web_search":
       return executeWebSearch(
