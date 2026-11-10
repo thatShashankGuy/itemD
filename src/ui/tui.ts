@@ -1,4 +1,5 @@
 import { realpath } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import {
   runAgent,
   type AgentRunResult,
@@ -14,6 +15,17 @@ import { createModelAdapter } from "../model/factory.ts";
 import { getErrorMessage, isRecord } from "../shared/runtime.ts";
 import { createSerperSearchProvider } from "../web/provider.ts";
 import type { SearchProvider } from "../web/provider.ts";
+import {
+  SessionService,
+  type SessionContext,
+} from "../session/service.ts";
+import { presentSessionMessage } from "../session/presentation.ts";
+import { openSessionStore } from "../session/store.ts";
+import {
+  ShellApprovalController,
+  type ShellApprovalRequest,
+  type ShellExecutionMode,
+} from "../permissions/shell-approval.ts";
 import {
   listTraces,
   replayTrace,
@@ -124,6 +136,65 @@ function printActiveConfiguration(
     io,
     `  web search: ${configuration.webSearch?.enabled ? "enabled" : "disabled"}`,
   );
+}
+
+function printSessionHistory(
+  io: TuiIO,
+  messages: SessionContext["messages"],
+): void {
+  if (messages.length === 0) {
+    return;
+  }
+
+  writeLine(io, "Restored session history:");
+  for (const message of messages) {
+    const presented = presentSessionMessage(message);
+    writeLine(io, `${presented.label}: ${presented.text}`);
+  }
+  writeLine(io);
+}
+
+function formatShellApprovalCommand(request: ShellApprovalRequest): string {
+  return [request.call.executable, ...request.call.args]
+    .map((part) => JSON.stringify(part))
+    .join(" ");
+}
+
+function createTuiShellApproval(
+  io: TuiIO,
+): ShellApprovalController {
+  return new ShellApprovalController(async (request) => {
+    writeLine(io);
+    writeLine(io, "The model requested this shell command:");
+    writeLine(io, `  ${formatShellApprovalCommand(request)}`);
+    writeLine(io, "  1. approve once");
+    writeLine(io, "  2. approve this exact command for later");
+    writeLine(io, "  3. deny");
+
+    while (true) {
+      const answer = await io.question("Approval [1/2/3]: ");
+
+      if (answer === null) {
+        return "deny";
+      }
+
+      const choice = answer.trim().toLowerCase();
+
+      if (choice === "1" || choice === "once" || choice === "y") {
+        return "once";
+      }
+
+      if (choice === "2" || choice === "always" || choice === "a") {
+        return "always";
+      }
+
+      if (choice === "3" || choice === "deny" || choice === "n") {
+        return "deny";
+      }
+
+      writeLine(io, "Choose 1, 2, or 3.");
+    }
+  });
 }
 
 export type ActiveConfiguration = {
@@ -243,9 +314,31 @@ async function handleReplayList(
 
 export type RunTuiOptions = {
   io?: TuiIO;
+  resumeSessionId?: string;
+  sessionDbPath?: string;
+  shellMode?: ShellExecutionMode;
   workspaceRoot?: string;
   config?: ConfigurationOptions;
 };
+
+function getTuiSessionDbPath(
+  options: RunTuiOptions,
+  config: ConfigurationOptions,
+): string | undefined {
+  if (options.sessionDbPath !== undefined) {
+    return options.sessionDbPath;
+  }
+
+  if (config.env?.ITEMD_SESSION_DB_PATH !== undefined) {
+    return undefined;
+  }
+
+  if (config.configPath !== undefined) {
+    return join(dirname(resolve(config.configPath)), "sessions.db");
+  }
+
+  return undefined;
+}
 
 export async function runTui(
   options: RunTuiOptions = {},
@@ -256,11 +349,24 @@ export async function runTui(
 
   if (options.io === undefined) {
     const { runOpenTui } = await import("./opentui.ts");
-    await runOpenTui({ workspaceRoot, config: configOptions });
+    await runOpenTui({
+      workspaceRoot,
+      config: configOptions,
+      ...(options.resumeSessionId === undefined
+        ? {}
+        : { resumeSessionId: options.resumeSessionId }),
+      ...(options.sessionDbPath === undefined
+        ? {}
+        : { sessionDbPath: options.sessionDbPath }),
+      ...(options.shellMode === undefined
+        ? {}
+        : { shellMode: options.shellMode }),
+    });
     return;
   }
 
   const io = options.io;
+  const shellApproval = createTuiShellApproval(io);
 
   writeLine(io, "itemD — Minimal Coding Harness");
   writeLine(io, `workspace: ${workspaceRoot}`);
@@ -285,8 +391,37 @@ export async function runTui(
     }
   }
 
+  const sessionDbPath = getTuiSessionDbPath(options, configOptions);
+  const sessionStore = await openSessionStore({
+    ...(sessionDbPath === undefined ? {} : { dbPath: sessionDbPath }),
+    ...(configOptions.env === undefined ? {} : { env: configOptions.env }),
+  });
+  const sessionService = new SessionService(sessionStore);
+  let sessionContext: SessionContext;
+
+  if (options.resumeSessionId !== undefined) {
+    const resumed = sessionService.resumeSession(
+      options.resumeSessionId,
+      workspaceRoot,
+    );
+
+    if (!resumed.ok) {
+      sessionService.close();
+      io.close();
+      writeLine(io, `[session error] ${resumed.error.message}`);
+      writeLine(io, "Goodbye.");
+      return;
+    }
+
+    sessionContext = resumed.context;
+  } else {
+    sessionContext = sessionService.createSession(workspaceRoot);
+  }
+
   printActiveConfiguration(io, active.configuration);
-  writeLine(io, "Type /help for commands. Each task starts a new run.");
+  writeLine(io, `session: ${sessionContext.session.id}`);
+  writeLine(io, "Type /help for commands. Messages are saved to this session.");
+  printSessionHistory(io, sessionContext.messages);
   writeLine(io);
 
   let streamReasoning = false;
@@ -398,8 +533,10 @@ export async function runTui(
       }
 
       if (command === "/new") {
+        sessionContext = sessionService.createSession(workspaceRoot);
         io.write("\u001B[2J\u001B[H");
         writeLine(io, "New session started. Active configuration retained.");
+        writeLine(io, `session: ${sessionContext.session.id}`);
         writeLine(io);
         continue;
       }
@@ -438,15 +575,28 @@ export async function runTui(
       writeLine(io, `Running with ${active.configuration.model}...`);
 
       try {
+        sessionContext = sessionService.appendMessage(
+          sessionContext.session.id,
+          { role: "user", content: line },
+        );
         const result = await runAgent(
           line,
           active.adapter,
           workspaceRoot,
           {
             tools: {
+              shellMode: options.shellMode ?? "ask",
+              shellApproval,
               ...(active.webSearchProvider === undefined
                 ? {}
                 : { webSearchProvider: active.webSearchProvider }),
+            },
+            initialMessages: sessionContext.messages,
+            onMessage: (message) => {
+              sessionContext = sessionService.appendMessage(
+                sessionContext.session.id,
+                message,
+              );
             },
             onEvent: (event) => {
               if (streamReasoning && event.type === "reasoning") {
@@ -463,6 +613,7 @@ export async function runTui(
       }
     }
   } finally {
+    sessionService.close();
     io.close();
   }
 

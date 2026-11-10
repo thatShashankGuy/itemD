@@ -1,5 +1,6 @@
 import type { AgentRunResult } from "./types.ts";
 import type { ModelAdapter } from "../model/adapter.ts";
+import type { ModelMessage } from "../model/types.ts";
 import {
   createContinueMessage,
   createModelHistory,
@@ -15,13 +16,15 @@ import {
   writeTraceEvent,
 } from "../telemetry/trace.ts";
 
-const MAX_AGENT_STEPS = 50;
+const MAX_AGENT_STEPS = 100;
 const DONE_PREFIX = "DONE:";
 
 export type { AgentRunResult } from "./types.ts";
 
 export type AgentRunOptions = {
+  initialMessages?: readonly ModelMessage[];
   maxSteps?: number;
+  onMessage?: (message: ModelMessage) => void | Promise<void>;
   signal?: AbortSignal;
   tools?: ToolExecutionOptions;
   onEvent?: (event: AgentRunEvent) => void | Promise<void>;
@@ -89,7 +92,12 @@ export async function runAgent(
   const toolOptions =
     typeof options === "number" ? {} : options.tools;
   const onEvent = typeof options === "number" ? undefined : options.onEvent;
-  const messages = createModelHistory(task);
+  const onMessage =
+    typeof options === "number" ? undefined : options.onMessage;
+  const messages: ModelMessage[] =
+    typeof options === "number" || options.initialMessages === undefined
+      ? createModelHistory(task)
+      : options.initialMessages.map((message) => structuredClone(message));
   const trace = await createTraceWriter(workspaceRoot);
 
   await writeTraceEvent(trace, {
@@ -150,6 +158,9 @@ export async function runAgent(
     }
 
     messages.push(modelResult.message);
+    if (onMessage !== undefined) {
+      await onMessage(modelResult.message);
+    }
 
     if (modelResult.action.type === "final") {
       const answer = getDoneAnswer(modelResult.action.text);
@@ -165,7 +176,11 @@ export async function runAgent(
         });
       }
 
-      messages.push(createContinueMessage());
+      const continueMessage = createContinueMessage();
+      messages.push(continueMessage);
+      if (onMessage !== undefined) {
+        await onMessage(continueMessage);
+      }
       continue;
     }
 
@@ -195,9 +210,11 @@ export async function runAgent(
         return finishCancelledRun(trace, step);
       }
 
-      messages.push(
-        createToolResultMessage(action, toolResult),
-      );
+      const toolMessage = createToolResultMessage(action, toolResult);
+      messages.push(toolMessage);
+      if (onMessage !== undefined) {
+        await onMessage(toolMessage);
+      }
     }
   }
 

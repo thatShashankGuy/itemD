@@ -9,6 +9,7 @@ import {
   runTui,
   type RunTuiOptions,
 } from "./src/ui/tui.ts";
+import { openSessionStore } from "./src/session/store.ts";
 import { runWeb } from "./src/ui/web.ts";
 
 export { runTui, type RunTuiOptions } from "./src/ui/tui.ts";
@@ -31,6 +32,9 @@ function printHelp(): void {
       "Usage:",
       "  itemd             Start the interactive terminal interface",
       "  itemd --web       Start the browser interface",
+      "  itemd --sessions  List the 10 most recent sessions",
+      "  itemd --resume <session-id>  Resume a saved session",
+      "  itemd --auto      Execute approved shell-policy commands without prompts",
       "  itemd --help      Show this help",
       "  itemd --version   Show the installed version",
       "  itemd --update    Update to the latest release",
@@ -39,9 +43,69 @@ function printHelp(): void {
   );
 }
 
+function parseTuiOptions(args: string[]): RunTuiOptions | null {
+  if (args.length === 0) {
+    return null;
+  }
+
+  let resumeSessionId: string | undefined;
+  let shellMode: RunTuiOptions["shellMode"];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+
+    if (argument === "--auto") {
+      shellMode = "auto";
+      continue;
+    }
+
+    if (argument === "--resume" || argument === "resume") {
+      const value = args[index + 1];
+
+      if (value === undefined || value.startsWith("-")) {
+        return null;
+      }
+
+      resumeSessionId = value;
+      index += 1;
+      continue;
+    }
+
+    return null;
+  }
+
+  return {
+    ...(resumeSessionId === undefined ? {} : { resumeSessionId }),
+    ...(shellMode === undefined ? {} : { shellMode }),
+  };
+}
+
+async function listSessions(): Promise<void> {
+  const store = await openSessionStore({ env: process.env });
+
+  try {
+    const sessions = store.listSessions(10);
+
+    if (sessions.length === 0) {
+      console.log("No saved sessions.");
+      return;
+    }
+
+    console.log("Recent sessions (newest first):");
+    for (const session of sessions) {
+      console.log(
+        `  ${session.id}  ${session.updatedAt}  ${session.workspaceRoot}`,
+      );
+    }
+  } finally {
+    store.close();
+  }
+}
+
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const command = args[0];
+  const tuiOptions = parseTuiOptions(args);
 
   if (args.length === 1 && (command === "--version" || command === "-V")) {
     console.log(`itemD v${packageMetadata.version}`);
@@ -66,6 +130,16 @@ if (import.meta.main) {
       console.error(`[web error] ${getErrorMessage(error)}`);
       process.exitCode = 1;
     }
+  } else if (args.length === 1 && command === "--sessions") {
+    await listSessions().catch((error: unknown) => {
+      console.error(`[session error] ${getErrorMessage(error)}`);
+      process.exitCode = 1;
+    });
+  } else if (tuiOptions !== null) {
+    await runTui(tuiOptions).catch((error: unknown) => {
+      console.error(`[tui error] ${getErrorMessage(error)}`);
+      process.exitCode = 1;
+    });
   } else if (args.length > 0) {
     printHelp();
     process.exitCode = 1;

@@ -19,6 +19,7 @@ import {
   type QuestionOptions,
   type TuiIO,
 } from "../src/ui/tui.ts";
+import { openSessionStore } from "../src/session/store.ts";
 
 class FakeTuiIO implements TuiIO {
   interrupted = false;
@@ -400,5 +401,46 @@ describe("TUI configuration flow", () => {
       ok: true,
       configuration: storedConfiguration(),
     });
+  });
+
+  test("resumes a session for the current workspace", async () => {
+    const { workspace, configPath } = await createTemporaryPaths();
+    await writeConfiguration(storedConfiguration(), {
+      configPath,
+      env: {},
+    });
+    const sessionStore = await openSessionStore({
+      dbPath: join(workspace, "config", "sessions.db"),
+    });
+    const session = sessionStore.createSession(workspace);
+    sessionStore.appendMessage(session.id, {
+      role: "user",
+      content: "Previous task",
+    });
+    sessionStore.appendMessage(session.id, {
+      role: "assistant",
+      content: "Previous answer",
+    });
+    sessionStore.appendMessage(session.id, {
+      role: "tool",
+      toolCallId: "call-1",
+      content: "Previous tool result",
+    });
+    sessionStore.close();
+
+    const io = new FakeTuiIO(["/quit"]);
+    await runTui({
+      io,
+      resumeSessionId: session.id,
+      workspaceRoot: workspace,
+      config: { configPath, env: {} },
+    });
+
+    expect(io.text()).toContain(`session: ${session.id}`);
+    expect(io.text()).toContain("Restored session history:");
+    expect(io.text()).toContain("you: Previous task");
+    expect(io.text()).toContain("assistant: Previous answer");
+    expect(io.text()).toContain("tool: call-1: Previous tool result");
+    expect(io.text()).not.toContain("[session error]");
   });
 });

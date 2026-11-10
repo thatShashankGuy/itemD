@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import {
   ASCIIFontRenderable,
   BoxRenderable,
@@ -29,6 +29,7 @@ import {
 } from "../config/configuration.ts";
 import { runBrowserSetup } from "../config/browser-setup.ts";
 import type { ModelAdapter } from "../model/adapter.ts";
+import type { ModelMessage } from "../model/types.ts";
 import { PROVIDER_CATALOG } from "../model/catalog.ts";
 import { createModelAdapter } from "../model/factory.ts";
 import {
@@ -38,6 +39,18 @@ import {
 } from "../shared/runtime.ts";
 import { createSerperSearchProvider } from "../web/provider.ts";
 import type { SearchProvider } from "../web/provider.ts";
+import {
+  SessionService,
+  type SessionContext,
+} from "../session/service.ts";
+import { presentSessionMessage } from "../session/presentation.ts";
+import { openSessionStore } from "../session/store.ts";
+import {
+  ShellApprovalController,
+  type ShellApprovalDecision,
+  type ShellApprovalRequest,
+  type ShellExecutionMode,
+} from "../permissions/shell-approval.ts";
 import { listTraces, replayTrace } from "../telemetry/trace.ts";
 import {
   formatTuiCommandHelp,
@@ -252,9 +265,51 @@ function logoSource(): URL | Blob {
 }
 
 type OpenTuiOptions = {
+  resumeSessionId?: string;
+  sessionDbPath?: string;
+  shellMode?: ShellExecutionMode;
   workspaceRoot: string;
   config: ConfigurationOptions;
 };
+
+function getOpenTuiSessionDbPath(
+  options: OpenTuiOptions,
+): string | undefined {
+  if (options.sessionDbPath !== undefined) {
+    return options.sessionDbPath;
+  }
+
+  if (options.config.env?.ITEMD_SESSION_DB_PATH !== undefined) {
+    return undefined;
+  }
+
+  if (options.config.configPath !== undefined) {
+    return join(
+      dirname(resolve(options.config.configPath)),
+      "sessions.db",
+    );
+  }
+
+  return undefined;
+}
+
+function parseShellApprovalDecision(value: string): ShellApprovalDecision | null {
+  const choice = value.trim().toLowerCase();
+
+  if (choice === "1" || choice === "once" || choice === "y") {
+    return "once";
+  }
+
+  if (choice === "2" || choice === "always" || choice === "a") {
+    return "always";
+  }
+
+  if (choice === "3" || choice === "deny" || choice === "n") {
+    return "deny";
+  }
+
+  return null;
+}
 
 type ActiveConfiguration = {
   configuration: ItemDConfiguration;
@@ -351,6 +406,33 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
 
   if (initialActive === null) {
     return;
+  }
+
+  const sessionDbPath = getOpenTuiSessionDbPath(options);
+  const sessionStore = await openSessionStore({
+    ...(sessionDbPath === undefined
+      ? {}
+      : { dbPath: sessionDbPath }),
+    ...(options.config.env === undefined ? {} : { env: options.config.env }),
+  });
+  const sessionService = new SessionService(sessionStore);
+  let sessionContext: SessionContext;
+
+  if (options.resumeSessionId !== undefined) {
+    const resumed = sessionService.resumeSession(
+      options.resumeSessionId,
+      options.workspaceRoot,
+    );
+
+    if (!resumed.ok) {
+      sessionService.close();
+      process.stderr.write(`[session error] ${resumed.error.message}\n`);
+      return;
+    }
+
+    sessionContext = resumed.context;
+  } else {
+    sessionContext = sessionService.createSession(options.workspaceRoot);
   }
 
   let active: ActiveConfiguration = initialActive;
@@ -571,6 +653,9 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   let stopLoaderTick: (() => void) | null = null;
   let elapsedTimer: ReturnType<typeof setInterval> | null = null;
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingShellApproval:
+    | { resolve: (decision: ShellApprovalDecision) => void }
+    | null = null;
   const transcriptEntries: Array<{
     renderable: TextRenderable;
     colorRole: LogColorRole;
@@ -649,7 +734,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     const configuration = active.configuration;
     headerText.content =
       `${configuration.provider}  •  ${configuration.model}  •  ${configuration.effort}  •  web ${configuration.webSearch?.enabled ? "on" : "off"}\n` +
-      `workspace: ${basename(options.workspaceRoot)}  •  theme: ${COLORS.name}`;
+      `workspace: ${basename(options.workspaceRoot)}  •  session: ${sessionContext.session.id}  •  theme: ${COLORS.name}`;
   };
 
   const appendLog = (
@@ -672,6 +757,46 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     transcript.add(entry);
     transcript.scrollTo(Infinity);
   };
+
+  const resolvePendingShellApproval = (
+    decision: ShellApprovalDecision,
+  ): void => {
+    const pending = pendingShellApproval;
+
+    if (pending === null) {
+      return;
+    }
+
+    pendingShellApproval = null;
+    taskInput.value = "";
+    taskInput.placeholder = "itemD is working…";
+    footer.content = DEFAULT_FOOTER_TEXT;
+    footer.fg = COLORS.muted;
+    pending.resolve(decision);
+  };
+
+  const formatShellApprovalCommand = (
+    request: ShellApprovalRequest,
+  ): string =>
+    [request.call.executable, ...request.call.args]
+      .map((part) => JSON.stringify(part))
+      .join(" ");
+
+  const shellApproval = new ShellApprovalController(async (request) => {
+    appendLog(
+      "approval  ",
+      `The model requested: ${formatShellApprovalCommand(request)}\n` +
+        "Enter 1 for once, 2 to allow this exact command later, or 3 to deny.",
+      COLORS.warning,
+    );
+    footer.content = " Approval: 1 once • 2 allow later • 3 deny • Esc deny ";
+    footer.fg = COLORS.warning;
+    taskInput.placeholder = "Enter 1, 2, or 3";
+
+    return new Promise<ShellApprovalDecision>((resolve) => {
+      pendingShellApproval = { resolve };
+    });
+  });
 
   const applyTheme = (theme: UiTheme): void => {
     COLORS = theme;
@@ -735,8 +860,28 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     );
   };
 
+  const renderSessionHistory = (): void => {
+    if (sessionContext.messages.length === 0) {
+      return;
+    }
+
+    appendLog("history  ", "Restored session history", COLORS.muted);
+    for (const message of sessionContext.messages) {
+      const presented = presentSessionMessage(message);
+      const color = presented.label === "you"
+        ? COLORS.user
+        : presented.label === "tool"
+          ? COLORS.muted
+          : COLORS.text;
+      appendLog(`${presented.label}  `, presented.text, color);
+    }
+  };
+
   const startNewSession = (): void => {
+    sessionContext = sessionService.createSession(options.workspaceRoot);
+    updateHeader();
     resetTranscript("New session started. Active configuration retained.");
+    appendLog("session  ", sessionContext.session.id, COLORS.muted);
   };
 
   const updateCommandPalette = (value: string): void => {
@@ -1240,6 +1385,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       activeRunController?.abort();
       activeReplayController?.abort();
       activeSetupController?.abort();
+      resolvePendingShellApproval("deny");
       stopLoader();
       stopElapsedTimer();
 
@@ -1253,6 +1399,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       } catch {
         // Terminal restoration must not depend on clipboard cleanup.
       } finally {
+        sessionService.close();
         if (!renderer.isDestroyed) {
           renderer.destroy();
         }
@@ -1498,14 +1645,27 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
         `Running with ${active.configuration.model}…`,
         COLORS.muted,
       );
+      sessionContext = sessionService.appendMessage(
+        sessionContext.session.id,
+        { role: "user", content: line },
+      );
       const runOptions = {
         ...(runController === null
           ? {}
           : { signal: runController.signal }),
         tools: {
+          shellMode: options.shellMode ?? "ask",
+          shellApproval,
           ...(active.webSearchProvider === undefined
             ? {}
             : { webSearchProvider: active.webSearchProvider }),
+        },
+        initialMessages: sessionContext.messages,
+        onMessage: (message: ModelMessage): void => {
+          sessionContext = sessionService.appendMessage(
+            sessionContext.session.id,
+            message,
+          );
         },
         onEvent: (event: AgentRunEvent): void => {
           if (streamReasoning && event.type === "reasoning") {
@@ -1583,6 +1743,13 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     if (key.ctrl && key.name === "c") {
       key.stopPropagation();
       void shutdown();
+      return;
+    }
+
+    if (key.name === "escape" && pendingShellApproval !== null) {
+      key.stopPropagation();
+      resolvePendingShellApproval("deny");
+      showToast("Shell command denied", COLORS.warning);
       return;
     }
 
@@ -1757,6 +1924,18 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   taskInput.on(InputRenderableEvents.ENTER, (value: string) => {
     const line = value.trim();
 
+    if (pendingShellApproval !== null) {
+      const decision = parseShellApprovalDecision(line);
+
+      if (decision === null) {
+        showToast("Choose 1, 2, or 3", COLORS.warning);
+        return;
+      }
+
+      resolvePendingShellApproval(decision);
+      return;
+    }
+
     if (line.length === 0 || busy) {
       return;
     }
@@ -1768,6 +1947,8 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
 
   updateHeader();
   clearTranscript();
+  appendLog("session  ", sessionContext.session.id, COLORS.muted);
+  renderSessionHistory();
   taskInput.focus();
 
   await destroyed;
@@ -1783,4 +1964,6 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   } catch {
     // The renderer already made its best effort to restore the terminal.
   }
+
+  sessionService.close();
 }

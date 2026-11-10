@@ -192,6 +192,8 @@ describe("failure observations", () => {
         args: ["--check", "missing-file.js"],
       },
       workspace,
+      undefined,
+      { shellMode: "auto" },
     );
 
     expect(result).toMatchObject({

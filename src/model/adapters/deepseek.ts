@@ -22,7 +22,9 @@ editing unfamiliar code.
 Use write_file to create or replace a complete file, and edit_file for one exact
 replacement in an existing file. Use delete_file only when the task requires
 removing a regular workspace file.
-Use shell only for permitted inspection or test commands.
+Use shell only for permitted inspection or test commands. Shell commands may
+request pty: true when terminal output formatting or terminal detection is
+required. The harness may ask the user for approval before execution.
 If a tool fails, inspect its structured error, exit code, stderr, and output;
 explain the root cause in the final answer and choose a recovery action when
 one is available.
@@ -195,6 +197,11 @@ const DEEPSEEK_TOOLS = [
             type: "array",
             items: { type: "string" },
             description: "Arguments passed directly without shell interpolation.",
+          },
+          pty: {
+            type: "boolean",
+            description:
+              "Optional. Allocate a pseudoterminal when the command needs terminal behavior.",
           },
         },
         required: ["executable", "args"],

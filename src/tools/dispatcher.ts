@@ -19,6 +19,10 @@ import {
 } from "./contracts.ts";
 import { validateShellPolicy } from "../permissions/shell-policy.ts";
 import {
+  ShellApprovalController,
+  type ShellExecutionMode,
+} from "../permissions/shell-approval.ts";
+import {
   checkRegularFile,
   MAX_FILE_BYTES,
   resolveWorkspaceDirectory,
@@ -43,6 +47,8 @@ type SearchMatch = {
 };
 
 export type ToolExecutionOptions = {
+  shellApproval?: ShellApprovalController;
+  shellMode?: ShellExecutionMode;
   webSearchProvider?: SearchProvider;
 };
 
@@ -458,11 +464,51 @@ async function executeShell(
   call: Extract<ToolCall, { type: "shell" }>,
   workspaceRoot: string,
   signal?: AbortSignal,
+  options: ToolExecutionOptions = {},
 ): Promise<ToolResult<CommandResult>> {
   const policy = validateShellPolicy(call);
 
   if (!policy.ok) {
     return policy;
+  }
+
+  if ((options.shellMode ?? "ask") === "ask") {
+    if (options.shellApproval === undefined) {
+      return {
+        ok: false,
+        error: {
+          code: "COMMAND_APPROVAL_REQUIRED",
+          message: "Shell command requires user approval",
+          details: { executable: call.executable, args: call.args },
+        },
+      };
+    }
+
+    let approved: boolean;
+    try {
+      approved = await options.shellApproval.authorize({
+        call,
+        workspaceRoot,
+      });
+    } catch {
+      return {
+        ok: false,
+        error: {
+          code: "COMMAND_DENIED",
+          message: "Shell command approval failed",
+        },
+      };
+    }
+
+    if (!approved) {
+      return {
+        ok: false,
+        error: {
+          code: "COMMAND_DENIED",
+          message: "Shell command was not approved",
+        },
+      };
+    }
   }
 
   const result = await executeCommand(
@@ -472,6 +518,7 @@ async function executeShell(
     COMMAND_TIMEOUT_MS,
     undefined,
     signal,
+    call.pty ?? false,
   );
 
   if (!result.ok) {
@@ -599,7 +646,7 @@ export async function executeTool(
       return executeSearchFiles(validation.call, workspaceRoot);
 
     case "shell":
-      return executeShell(validation.call, workspaceRoot, signal);
+      return executeShell(validation.call, workspaceRoot, signal, options);
 
     case "web_search":
       return executeWebSearch(
