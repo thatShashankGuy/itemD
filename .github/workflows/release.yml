@@ -16,6 +16,42 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Verify release version was bumped
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          base_sha="${BEFORE_SHA:-}"
+          if [[ -z "$base_sha" || "$base_sha" =~ ^0+$ ]]; then
+            base_sha="$(git rev-parse HEAD^)"
+          fi
+
+          if ! git cat-file -e "$base_sha^{commit}" 2>/dev/null; then
+            echo "Unable to inspect the previous commit ($base_sha) to verify the release version." >&2
+            exit 1
+          fi
+
+          current_version="$(node -e "const fs = require('node:fs'); process.stdout.write(JSON.parse(fs.readFileSync('package.json', 'utf8')).version)")"
+          previous_version="$(git show "$base_sha:package.json" | node -e "let input = ''; process.stdin.on('data', (chunk) => input += chunk); process.stdin.on('end', () => process.stdout.write(JSON.parse(input).version));")"
+          lock_version="$(node -e "const fs = require('node:fs'); process.stdout.write(JSON.parse(fs.readFileSync('package-lock.json', 'utf8')).version)")"
+          lock_root_version="$(node -e "const fs = require('node:fs'); process.stdout.write(JSON.parse(fs.readFileSync('package-lock.json', 'utf8')).packages[''].version)")"
+
+          if [[ "$current_version" == "$previous_version" ]]; then
+            echo "Release version was not bumped: package.json is still $current_version." >&2
+            exit 1
+          fi
+
+          if [[ "$current_version" != "$lock_version" || "$current_version" != "$lock_root_version" ]]; then
+            echo "package.json and package-lock.json versions must match: package=$current_version lock=$lock_version lock-root=$lock_root_version." >&2
+            exit 1
+          fi
+
+          echo "Release version changed from $previous_version to $current_version."
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
