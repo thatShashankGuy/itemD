@@ -7,6 +7,14 @@ export type SidebarModel = {
   model: string;
   effort: string;
   webSearchEnabled: boolean;
+  recentSessions: readonly RecentSessionModel[];
+};
+
+export type RecentSessionModel = {
+  id: string;
+  workspaceName: string;
+  updatedAt: string;
+  active: boolean;
 };
 
 export function shouldShowSidebar(width: number): boolean {
@@ -14,6 +22,14 @@ export function shouldShowSidebar(width: number): boolean {
 }
 
 export function formatSidebarContent(model: SidebarModel): string {
+  const recentSessions = model.recentSessions.length === 0
+    ? ["(none)"]
+    : model.recentSessions.map((session) => {
+      const marker = session.active ? "*" : " ";
+      const shortId = session.id.slice(0, 8);
+      return `${marker} ${shortId}  ${session.workspaceName}  ${formatSessionTime(session.updatedAt)}`;
+    });
+
   return [
     "WORKSPACE",
     model.workspaceName,
@@ -26,9 +42,16 @@ export function formatSidebarContent(model: SidebarModel): string {
     `effort: ${model.effort}`,
     `web search: ${model.webSearchEnabled ? "on" : "off"}`,
     "",
+    "RECENT SESSIONS",
+    ...recentSessions,
+    "",
     "SHORTCUTS",
     "Esc  stop active task",
     "Ctrl+C  exit itemD",
     "/  command palette",
   ].join("\n");
+}
+
+function formatSessionTime(updatedAt: string): string {
+  return updatedAt.replace("T", " ").replace(/:\d{2}\.\d{3}Z$/, "Z");
 }

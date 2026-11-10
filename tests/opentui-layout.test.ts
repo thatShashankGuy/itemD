@@ -21,7 +21,26 @@ describe("OpenTUI layout model", () => {
         model: "deepseek-flash",
         effort: "high",
         webSearchEnabled: false,
+        recentSessions: [
+          {
+            id: "12345678-aaaa-bbbb-cccc-123456789012",
+            workspaceName: "itemD",
+            updatedAt: "2026-11-10T10:20:30.123Z",
+            active: true,
+          },
+        ],
       }),
     ).toContain("deepseek / deepseek-flash\neffort: high\nweb search: off");
+    expect(
+      formatSidebarContent({
+        workspaceName: "itemD",
+        sessionId: "session-1",
+        provider: "deepseek",
+        model: "deepseek-flash",
+        effort: "high",
+        webSearchEnabled: false,
+        recentSessions: [],
+      }),
+    ).toContain("RECENT SESSIONS\n(none)");
   });
 });

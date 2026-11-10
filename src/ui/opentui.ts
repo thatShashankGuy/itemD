@@ -44,6 +44,7 @@ import {
   SessionService,
   type SessionContext,
 } from "../session/service.ts";
+import type { Session } from "../session/store.ts";
 import { presentSessionMessage } from "../session/presentation.ts";
 import { openSessionStore } from "../session/store.ts";
 import {
@@ -69,6 +70,7 @@ import {
 } from "./shell.ts";
 import {
   formatSidebarContent,
+  type RecentSessionModel,
   shouldShowSidebar,
 } from "./opentui-layout.ts";
 
@@ -693,6 +695,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   let activeReplayController: AbortController | null = null;
   let activeSetupController: AbortController | null = null;
   let replayPickerVisible = false;
+  let sessionPickerVisible = false;
   type ConfigurationMenu =
     | { level: "root" }
     | { level: "model" }
@@ -705,6 +708,8 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     modifiedAt: string;
   }> = [];
   let selectedReplayIndex = 0;
+  let sessionChoices: Session[] = [];
+  let selectedSessionIndex = 0;
   let streamReasoning = false;
   let stopLoaderTick: (() => void) | null = null;
   let elapsedTimer: ReturnType<typeof setInterval> | null = null;
@@ -790,6 +795,16 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   };
 
   const updateSidebar = (): void => {
+    const recentSessions: RecentSessionModel[] = sessionService
+      .listSessions(10)
+      .filter((session) => session.workspaceRoot === options.workspaceRoot)
+      .map((session) => ({
+        id: session.id,
+        workspaceName: basename(session.workspaceRoot),
+        updatedAt: session.updatedAt,
+        active: session.id === sessionContext.session.id,
+      }));
+
     sidebarText.content = formatSidebarContent({
       workspaceName: basename(options.workspaceRoot),
       sessionId: sessionContext.session.id,
@@ -797,6 +812,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       model: active.configuration.model,
       effort: active.configuration.effort,
       webSearchEnabled: active.configuration.webSearch?.enabled === true,
+      recentSessions,
     });
   };
 
@@ -1045,7 +1061,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   };
 
   const updateCommandPalette = (value: string): void => {
-    if (replayPickerVisible) {
+    if (replayPickerVisible || sessionPickerVisible || configurationMenu !== null) {
       return;
     }
 
@@ -1099,6 +1115,84 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       footer.content = DEFAULT_FOOTER_TEXT;
       footer.fg = COLORS.muted;
     }
+  };
+
+  const updateSessionPicker = (): void => {
+    const total = sessionChoices.length;
+    const visibleChoices = sessionChoices.slice(0, 10);
+    commandPalette.title = " sessions ";
+    commandPaletteText.content = visibleChoices
+      .map((session, index) => {
+        const marker = index === selectedSessionIndex ? "›" : " ";
+        const activeMarker = session.id === sessionContext.session.id ? "*" : " ";
+        return `${marker} ${activeMarker} ${session.id}  ${basename(session.workspaceRoot)}  ${session.updatedAt}`;
+      })
+      .join("\n");
+    commandPalette.height = visibleChoices.length + 2;
+    commandPalette.visible = true;
+    footer.content = total > 10
+      ? " ↑/↓ select • Enter resume • Esc close • showing newest 10 "
+      : " ↑/↓ select • Enter resume • Esc close ";
+    footer.fg = COLORS.muted;
+  };
+
+  const closeSessionPicker = (): void => {
+    sessionPickerVisible = false;
+    sessionChoices = [];
+    selectedSessionIndex = 0;
+    commandPalette.title = " commands ";
+    commandPalette.visible = false;
+    commandPaletteText.content = "";
+
+    if (toastTimer === null && !busy) {
+      footer.content = DEFAULT_FOOTER_TEXT;
+      footer.fg = COLORS.muted;
+    }
+  };
+
+  const openSessionPicker = (): void => {
+    sessionChoices = sessionService
+      .listSessions(10)
+      .filter((session) => session.workspaceRoot === options.workspaceRoot);
+
+    if (sessionChoices.length === 0) {
+      appendLog("sessions  ", "No sessions found for this workspace.", COLORS.muted);
+      return;
+    }
+
+    selectedSessionIndex = Math.max(
+      0,
+      sessionChoices.findIndex((session) => session.id === sessionContext.session.id),
+    );
+    sessionPickerVisible = true;
+    updateSessionPicker();
+  };
+
+  const resumeSessionById = (sessionId: string): void => {
+    const resumed = sessionService.resumeSession(sessionId, options.workspaceRoot);
+
+    if (!resumed.ok) {
+      appendLog("session error  ", resumed.error.message, COLORS.error);
+      return;
+    }
+
+    closeSessionPicker();
+    sessionContext = resumed.context;
+    resetTranscript("Session resumed. Restored message history below.");
+    updateHeader();
+    appendLog("session  ", sessionContext.session.id, COLORS.muted);
+    renderSessionHistory();
+  };
+
+  const selectSession = (): void => {
+    const selected = sessionChoices[selectedSessionIndex];
+
+    if (selected === undefined) {
+      closeSessionPicker();
+      return;
+    }
+
+    resumeSessionById(selected.id);
   };
 
   const closeConfigurationMenu = (): void => {
@@ -1715,6 +1809,27 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
         await runReplay(words[1]);
         return;
       }
+      case "/sessions":
+        if (words.length !== 1) {
+          appendLog("usage  ", "/sessions", COLORS.warning);
+          return;
+        }
+
+        openSessionPicker();
+        return;
+      case "/resume":
+        if (words.length === 1) {
+          openSessionPicker();
+          return;
+        }
+
+        if (words.length !== 2 || words[1] === undefined) {
+          appendLog("usage  ", "/resume [session-id]", COLORS.warning);
+          return;
+        }
+
+        resumeSessionById(words[1]);
+        return;
       case "/clear":
         clearTranscript();
         return;
@@ -1810,6 +1925,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
         sessionContext.session.id,
         { role: "user", content: line },
       );
+      updateSidebar();
       const runOptions = {
         ...(runController === null
           ? {}
@@ -1827,6 +1943,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
             sessionContext.session.id,
             message,
           );
+          updateSidebar();
         },
         onEvent: (event: AgentRunEvent): void => {
           if (streamReasoning && event.type === "reasoning") {
@@ -2000,6 +2117,31 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
         key.preventDefault();
         key.stopPropagation();
         selectReplay();
+        return;
+      }
+    }
+
+    if (sessionPickerVisible) {
+      if (key.name === "escape") {
+        key.preventDefault();
+        closeSessionPicker();
+        return;
+      }
+
+      if (key.name === "up" || key.name === "down") {
+        key.preventDefault();
+        const delta = key.name === "up" ? -1 : 1;
+        selectedSessionIndex =
+          (selectedSessionIndex + delta + sessionChoices.length) %
+          sessionChoices.length;
+        updateSessionPicker();
+        return;
+      }
+
+      if (key.name === "return") {
+        key.preventDefault();
+        key.stopPropagation();
+        selectSession();
         return;
       }
     }
