@@ -1,6 +1,7 @@
 import type { ProviderSelectionError } from "./contracts.ts";
 import type {
   ModelCallResult,
+  ModelCallOptions,
   ModelMessage,
   ModelMetadata,
   ModelStreamEvent,
@@ -11,10 +12,12 @@ export interface ModelAdapter {
   call(
     history: readonly ModelMessage[],
     signal?: AbortSignal,
+    options?: ModelCallOptions,
   ): Promise<ModelCallResult>;
   stream?(
     history: readonly ModelMessage[],
     signal?: AbortSignal,
+    options?: ModelCallOptions,
   ): AsyncIterable<ModelStreamEvent>;
 }
 

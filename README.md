@@ -150,6 +150,14 @@ complete a command. Drag across transcript text to copy it; the footer confirms
 the number of characters copied. While an agent task is active, the header
 shows an animated loader and Escape stops the task.
 
+General informational questions, such as `What is a closure?`, use a direct
+answer mode with no model tools and complete from the first response. Prompts
+that mention the workspace or request an action, such as `Fix the failing
+tests`, retain the normal tool-enabled agent loop. This classification is
+conservative; workspace and action requests remain subject to the existing
+tool validation and permission policy. The selected mode is recorded in the
+run-start trace event.
+
 To run a direct inspection command, prefix it with `!`, for example
 `!git status` or `!npm test`. Direct commands use the same workspace boundary,
 argument parsing, timeout, output limits, and shell allowlist as model-requested

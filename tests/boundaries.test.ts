@@ -190,6 +190,7 @@ describe("trace replay", () => {
       provider: "deepseek",
       model: "deepseek-flash",
       effort: "high",
+      mode: "agent",
       maxSteps: 50,
     });
     await writeTraceEvent(writer, {

@@ -11,6 +11,7 @@ import { join } from "node:path";
 import type { AgentRunResult } from "../agent/types.ts";
 import type {
   ModelCallResult,
+  InteractionMode,
   ModelMessage,
 } from "../model/types.ts";
 import type {
@@ -33,6 +34,7 @@ type TraceEvent =
       provider: ProviderId;
       model: string;
       effort: ReasoningEffort;
+      mode: InteractionMode;
       maxSteps: number;
     }
   | {

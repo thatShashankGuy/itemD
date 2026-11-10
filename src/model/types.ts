@@ -9,6 +9,12 @@ export type ModelToolRequest = {
   arguments: string;
 };
 
+export type InteractionMode = "direct" | "agent";
+
+export type ModelCallOptions = {
+  interactionMode: InteractionMode;
+};
+
 export type ModelMessage =
   | { role: "user"; content: string }
   | {
