@@ -69,11 +69,6 @@ import {
   formatShellResult,
 } from "./shell.ts";
 import {
-  formatSidebarContent,
-  type RecentSessionModel,
-  shouldShowSidebar,
-} from "./opentui-layout.ts";
-import {
   formatActivitySnapshot,
   formatShellApprovalPanel,
 } from "./opentui-activity.ts";
@@ -84,7 +79,6 @@ type UiTheme = {
   name: ThemeName;
   background: string;
   panel: string;
-  border: string;
   accent: string;
   text: string;
   muted: string;
@@ -100,7 +94,6 @@ const DARK_THEME: UiTheme = {
   name: "dark",
   background: "#0d1117",
   panel: "#161b22",
-  border: "#30363d",
   accent: "#f04444",
   text: "#f0f3f6",
   muted: "#8b949e",
@@ -116,7 +109,6 @@ const LIGHT_THEME: UiTheme = {
   name: "light",
   background: "#f6f8fa",
   panel: "#ffffff",
-  border: "#afb8c1",
   accent: "#c62828",
   text: "#1f2328",
   muted: "#59636e",
@@ -490,16 +482,13 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   const header = new BoxRenderable(renderer, {
     id: "header",
     width: "100%",
-    height: 5,
+    height: 3,
     flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
     paddingX: 1,
-    columnGap: 2,
-    border: true,
-    borderStyle: "rounded",
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.panel,
+    columnGap: 1,
+    backgroundColor: COLORS.background,
   });
   const logoFallback = new ASCIIFontRenderable(renderer, {
     id: "logo-fallback",
@@ -522,15 +511,6 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       logoFallback.visible = true;
     },
   });
-  const headerText = new TextRenderable(renderer, {
-    id: "active-configuration",
-    content: "",
-    fg: COLORS.text,
-    flexGrow: 1,
-    minWidth: 0,
-    height: 2,
-    wrapMode: "none",
-  });
   const statusText = new TextRenderable(renderer, {
     id: "status",
     content: "READY",
@@ -539,7 +519,11 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   });
   header.add(logo);
   header.add(logoFallback);
-  header.add(headerText);
+  const headerSpacer = new BoxRenderable(renderer, {
+    id: "header-spacer",
+    flexGrow: 1,
+  });
+  header.add(headerSpacer);
   header.add(statusText);
 
   const body = new BoxRenderable(renderer, {
@@ -548,33 +532,9 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     flexGrow: 1,
     flexBasis: 0,
     minHeight: 1,
-    flexDirection: "row",
+    flexDirection: "column",
     backgroundColor: COLORS.background,
   });
-  const sidebar = new BoxRenderable(renderer, {
-    id: "sidebar",
-    width: 28,
-    minWidth: 28,
-    flexShrink: 0,
-    flexDirection: "column",
-    border: true,
-    borderStyle: "rounded",
-    borderColor: COLORS.border,
-    title: " context ",
-    titleColor: COLORS.muted,
-    backgroundColor: COLORS.panel,
-    paddingX: 1,
-  });
-  const sidebarText = new TextRenderable(renderer, {
-    id: "sidebar-text",
-    content: "",
-    width: "100%",
-    flexGrow: 1,
-    flexShrink: 0,
-    fg: COLORS.text,
-    wrapMode: "word",
-  });
-  sidebar.add(sidebarText);
 
   const mainColumn = new BoxRenderable(renderer, {
     id: "main-column",
@@ -592,11 +552,6 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     flexGrow: 1,
     flexBasis: 0,
     minHeight: 1,
-    border: true,
-    borderStyle: "rounded",
-    borderColor: COLORS.border,
-    title: " transcript ",
-    titleColor: COLORS.muted,
     stickyScroll: true,
     stickyStart: "bottom",
     scrollY: true,
@@ -621,11 +576,6 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     width: "100%",
     height: 3,
     flexShrink: 0,
-    border: true,
-    borderStyle: "rounded",
-    borderColor: COLORS.border,
-    title: " activity ",
-    titleColor: COLORS.muted,
     paddingX: 1,
     visible: false,
     backgroundColor: COLORS.panel,
@@ -643,11 +593,6 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     width: "100%",
     height: 6,
     flexShrink: 0,
-    border: true,
-    borderStyle: "rounded",
-    borderColor: COLORS.warning,
-    title: " shell approval ",
-    titleColor: COLORS.warning,
     paddingX: 1,
     visible: false,
     backgroundColor: COLORS.panel,
@@ -665,11 +610,6 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     width: "100%",
     height: 3,
     flexShrink: 0,
-    border: true,
-    borderStyle: "rounded",
-    borderColor: COLORS.accent,
-    title: " commands ",
-    titleColor: COLORS.accent,
     paddingX: 1,
     visible: false,
     backgroundColor: COLORS.panel,
@@ -690,12 +630,6 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     width: "100%",
     height: 3,
     flexShrink: 0,
-    border: true,
-    borderStyle: "rounded",
-    borderColor: COLORS.border,
-    focusedBorderColor: COLORS.accent,
-    title: " task ",
-    titleColor: COLORS.accent,
     paddingX: 1,
     backgroundColor: COLORS.panel,
   });
@@ -726,7 +660,6 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     wrapMode: "none",
   });
 
-  body.add(sidebar);
   body.add(mainColumn);
   mainColumn.add(transcript);
   mainColumn.add(activityBox);
@@ -847,41 +780,6 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   const updateActivity = (content: string, visible = true): void => {
     activityText.content = content;
     activityBox.visible = visible;
-  };
-
-  const updateSidebar = (): void => {
-    const recentSessions: RecentSessionModel[] = sessionService
-      .listSessions(10)
-      .filter((session) => session.workspaceRoot === options.workspaceRoot)
-      .slice(0, 5)
-      .map((session) => ({
-        id: session.id,
-        workspaceName: basename(session.workspaceRoot),
-        updatedAt: session.updatedAt,
-        active: session.id === sessionContext.session.id,
-      }));
-
-    sidebarText.content = formatSidebarContent({
-      workspaceName: basename(options.workspaceRoot),
-      sessionId: sessionContext.session.id,
-      provider: active.configuration.provider,
-      model: active.configuration.model,
-      effort: active.configuration.effort,
-      webSearchEnabled: active.configuration.webSearch?.enabled === true,
-      recentSessions,
-    });
-  };
-
-  const updateHeader = (): void => {
-    const configuration = active.configuration;
-    headerText.content =
-      `${configuration.provider}  •  ${configuration.model}  •  ${configuration.effort}  •  web ${configuration.webSearch?.enabled ? "on" : "off"}\n` +
-      `workspace: ${basename(options.workspaceRoot)}  •  session: ${sessionContext.session.id}  •  theme: ${COLORS.name}`;
-    updateSidebar();
-  };
-
-  const updateResponsiveLayout = (): void => {
-    sidebar.visible = shouldShowSidebar(renderer.width);
   };
 
   const appendLog = (
@@ -1048,39 +946,22 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     COLORS = theme;
     renderer.setBackgroundColor(theme.background);
     app.backgroundColor = theme.background;
-    header.borderColor = theme.border;
-    header.backgroundColor = theme.panel;
+    header.backgroundColor = theme.background;
     logoFallback.color = theme.accent;
-    headerText.fg = theme.text;
     statusText.fg = busy ? theme.warning : theme.success;
-    sidebar.borderColor = theme.border;
-    sidebar.titleColor = theme.muted;
-    sidebar.backgroundColor = theme.panel;
-    sidebarText.fg = theme.text;
-    activityBox.borderColor = theme.border;
-    activityBox.titleColor = theme.muted;
     activityBox.backgroundColor = theme.panel;
     activityText.fg = theme.muted;
-    approvalPanel.borderColor = theme.warning;
-    approvalPanel.titleColor = theme.warning;
     approvalPanel.backgroundColor = theme.panel;
     approvalText.fg = theme.warning;
-    transcript.borderColor = theme.border;
-    transcript.titleColor = theme.muted;
     transcript.viewport.backgroundColor = theme.background;
     transcript.verticalScrollBar.trackOptions = {
       foregroundColor: theme.accent,
       backgroundColor: theme.panel,
     };
-    commandPalette.borderColor = theme.accent;
-    commandPalette.titleColor = theme.accent;
     commandPalette.backgroundColor = theme.panel;
     commandPaletteText.fg = theme.text;
     commandPaletteText.selectionBg = theme.selectionBackground;
     commandPaletteText.selectionFg = theme.selectionText;
-    inputBox.borderColor = theme.border;
-    inputBox.focusedBorderColor = theme.accent;
-    inputBox.titleColor = theme.accent;
     inputBox.backgroundColor = theme.panel;
     taskInput.backgroundColor = theme.panel;
     taskInput.focusedBackgroundColor = theme.panel;
@@ -1099,7 +980,6 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       entry.renderable.selectionFg = theme.selectionText;
     }
 
-    updateHeader();
   };
 
   const resetTranscript = (message: string): void => {
@@ -1140,9 +1020,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   const startNewSession = (): void => {
     sessionContext = sessionService.createSession(options.workspaceRoot);
     resetLiveAssistant();
-    updateHeader();
     resetTranscript("New session started. Active configuration retained.");
-    appendLog("session  ", sessionContext.session.id, COLORS.muted);
   };
 
   const updateCommandPalette = (value: string): void => {
@@ -1264,8 +1142,6 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     closeSessionPicker();
     sessionContext = resumed.context;
     resetTranscript("Session resumed. Restored message history below.");
-    updateHeader();
-    appendLog("session  ", sessionContext.session.id, COLORS.muted);
     renderSessionHistory();
   };
 
@@ -1563,7 +1439,6 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     }
 
     active = replacement.active;
-    updateHeader();
     appendLog(
       "configuration  ",
       "Reloaded API key and model settings.",
@@ -1594,7 +1469,6 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       }
 
       active = replacement.active;
-      updateHeader();
       appendLog(
         "configuration  ",
         "Updated for this session. Add a saved configuration through /setup browser.",
@@ -1624,7 +1498,6 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     }
 
     active = replacement.active;
-    updateHeader();
     appendLog("configuration  ", "Saved and applied.", COLORS.success);
   };
 
@@ -2015,7 +1888,6 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
         sessionContext.session.id,
         { role: "user", content: line },
       );
-      updateSidebar();
       const runOptions = {
         ...(runController === null
           ? {}
@@ -2033,7 +1905,6 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
             sessionContext.session.id,
             message,
           );
-          updateSidebar();
         },
         onEvent: (event: AgentRunEvent): void => {
           if (streamReasoning && event.type === "reasoning") {
@@ -2301,11 +2172,9 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   };
 
   renderer.keyInput.on("keypress", onKeyPress);
-  renderer.on(CliRenderEvents.RESIZE, updateResponsiveLayout);
   renderer.on(CliRenderEvents.SELECTION, onSelection);
   renderer.once(CliRenderEvents.DESTROY, () => {
     renderer.keyInput.off("keypress", onKeyPress);
-    renderer.off(CliRenderEvents.RESIZE, updateResponsiveLayout);
     renderer.off(CliRenderEvents.SELECTION, onSelection);
     process.removeListener("SIGTERM", onShutdownSignal);
     process.removeListener("SIGHUP", onShutdownSignal);
@@ -2345,10 +2214,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     void handleLine(line);
   });
 
-  updateResponsiveLayout();
-  updateHeader();
   clearTranscript();
-  appendLog("session  ", sessionContext.session.id, COLORS.muted);
   renderSessionHistory();
   taskInput.focus();
 
