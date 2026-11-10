@@ -11,6 +11,7 @@ import { runAgent } from "../src/agent/runner.ts";
 import { executeCommand } from "../src/execution/command.ts";
 import type { ModelAdapter } from "../src/model/adapter.ts";
 import { createModelAdapter } from "../src/model/factory.ts";
+import { ShellApprovalController } from "../src/permissions/shell-approval.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -130,6 +131,69 @@ describe("agent cancellation", () => {
         code: "MODEL_REQUEST_FAILED",
         message: "DeepSeek request cancelled",
       },
+    });
+  });
+
+  test("cancels a run that is waiting for shell approval", async () => {
+    const workspace = await createTemporaryWorkspace();
+    const controller = new AbortController();
+    let markApprovalStarted: (() => void) | undefined;
+    const approvalStarted = new Promise<void>((resolve) => {
+      markApprovalStarted = resolve;
+    });
+    const adapter: ModelAdapter = {
+      metadata: {
+        provider: "deepseek",
+        model: "deepseek-flash",
+        effort: "high",
+      },
+      async call() {
+        return {
+          ok: true,
+          message: {
+            role: "assistant",
+            content: null,
+            toolCalls: [{
+              id: "call-1",
+              name: "shell",
+              arguments: "{}",
+            }],
+          },
+          action: {
+            type: "tool_calls",
+            calls: [{
+              id: "call-1",
+              name: "shell",
+              args: {},
+              call: { type: "shell", executable: "pwd", args: [] },
+            }],
+          },
+        };
+      },
+    };
+    const approval = new ShellApprovalController((_request, signal) => {
+      markApprovalStarted?.();
+
+      return new Promise((resolve) => {
+        signal?.addEventListener(
+          "abort",
+          () => resolve("deny"),
+          { once: true },
+        );
+      });
+    });
+    const pending = runAgent("run pwd", adapter, workspace, {
+      signal: controller.signal,
+      tools: { shellMode: "ask", shellApproval: approval },
+    });
+
+    await approvalStarted;
+    controller.abort();
+
+    await expect(pending).resolves.toMatchObject({
+      ok: false,
+      status: "cancelled",
+      error: { code: "RUN_CANCELLED" },
     });
   });
 

@@ -511,7 +511,7 @@ async function executeShell(
       approved = await options.shellApproval.authorize({
         call,
         workspaceRoot,
-      });
+      }, signal);
     } catch {
       return {
         ok: false,

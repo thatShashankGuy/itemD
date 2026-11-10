@@ -659,7 +659,10 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   let elapsedTimer: ReturnType<typeof setInterval> | null = null;
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingShellApproval:
-    | { resolve: (decision: ShellApprovalDecision) => void }
+    | {
+        resolve: (decision: ShellApprovalDecision) => void;
+        cleanup: () => void;
+      }
     | null = null;
   const transcriptEntries: Array<{
     renderable: TextRenderable;
@@ -838,6 +841,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     }
 
     pendingShellApproval = null;
+    pending.cleanup();
     taskInput.value = "";
     taskInput.placeholder = "itemD is working…";
     footer.content = DEFAULT_FOOTER_TEXT;
@@ -852,7 +856,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       .map((part) => JSON.stringify(part))
       .join(" ");
 
-  const shellApproval = new ShellApprovalController(async (request) => {
+  const shellApproval = new ShellApprovalController(async (request, signal) => {
     appendLog(
       "approval  ",
       `The model requested: ${formatShellApprovalCommand(request)}\n` +
@@ -864,7 +868,19 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     taskInput.placeholder = "Enter 1, 2, or 3";
 
     return new Promise<ShellApprovalDecision>((resolve) => {
-      pendingShellApproval = { resolve };
+      const onAbort = (): void => {
+        resolvePendingShellApproval("deny");
+      };
+      const cleanup = (): void => {
+        signal?.removeEventListener("abort", onAbort);
+      };
+
+      pendingShellApproval = { resolve, cleanup };
+      signal?.addEventListener("abort", onAbort, { once: true });
+
+      if (signal?.aborted) {
+        onAbort();
+      }
     });
   });
 

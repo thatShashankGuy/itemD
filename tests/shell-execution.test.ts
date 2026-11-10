@@ -145,6 +145,33 @@ describe("model shell execution policy", () => {
       "executing_tool",
     ]);
   });
+
+  test("cancels a pending approval", async () => {
+    const workspace = await createWorkspace();
+    const controller = new AbortController();
+    const approval = new ShellApprovalController(
+      (_request, signal) => new Promise((resolve) => {
+        signal?.addEventListener(
+          "abort",
+          () => resolve("deny"),
+          { once: true },
+        );
+      }),
+    );
+    const pending = executeTool(
+      { type: "shell", executable: "pwd", args: [] },
+      workspace,
+      controller.signal,
+      { shellMode: "ask", shellApproval: approval },
+    );
+
+    controller.abort();
+
+    await expect(pending).resolves.toMatchObject({
+      ok: false,
+      error: { code: "COMMAND_DENIED" },
+    });
+  });
 });
 
 describe("pty command execution", () => {

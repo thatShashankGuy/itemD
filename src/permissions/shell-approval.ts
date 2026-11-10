@@ -10,6 +10,7 @@ export type ShellApprovalRequest = {
 
 export type ShellApprovalHandler = (
   request: ShellApprovalRequest,
+  signal?: AbortSignal,
 ) => ShellApprovalDecision | Promise<ShellApprovalDecision>;
 
 function commandKey(call: Extract<ToolCall, { type: "shell" }>): string {
@@ -29,14 +30,45 @@ export class ShellApprovalController {
     this.handler = handler;
   }
 
-  async authorize(request: ShellApprovalRequest): Promise<boolean> {
+  async authorize(
+    request: ShellApprovalRequest,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    if (signal?.aborted) {
+      return false;
+    }
+
     const key = commandKey(request.call);
 
     if (this.allowedCommands.has(key)) {
       return true;
     }
 
-    const decision = await this.handler(request);
+    const decision = await new Promise<ShellApprovalDecision>((resolve) => {
+      let settled = false;
+
+      const finish = (value: ShellApprovalDecision): void => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        signal?.removeEventListener("abort", onAbort);
+        resolve(value);
+      };
+      const onAbort = (): void => {
+        finish("deny");
+      };
+
+      signal?.addEventListener("abort", onAbort, { once: true });
+      Promise.resolve()
+        .then(() => this.handler(request, signal))
+        .then(finish, () => finish("deny"));
+    });
+
+    if (signal?.aborted) {
+      return false;
+    }
 
     if (decision === "always") {
       this.allowedCommands.add(key);
