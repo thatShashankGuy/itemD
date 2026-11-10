@@ -97,6 +97,17 @@ describe("web UI", () => {
     expect(html).not.toContain(">Send</button>");
     expect(html).not.toContain("class=\"sidebar\"");
 
+    const editorResponse = await fetch(withToken(browserUrl!, "/api/input"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ line: "$editor" }),
+    });
+    expect(editorResponse.status).toBe(200);
+    expect(await editorResponse.json()).toMatchObject({
+      message: expect.stringContaining("terminal composer"),
+      tone: "warning",
+    });
+
     const stateResponse = await fetch(withToken(browserUrl!, "/api/state"));
     expect(stateResponse.status).toBe(200);
     expect(await stateResponse.json()).toMatchObject({

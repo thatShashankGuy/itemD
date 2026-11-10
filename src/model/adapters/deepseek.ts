@@ -3,6 +3,7 @@ import type { ModelAdapter } from "../adapter.ts";
 import type { ReasoningEffort } from "../contracts.ts";
 import type {
   ModelCallResult,
+  ModelCallOptions,
   ModelMessage,
   ModelStreamEvent,
   ModelToolRequest,
@@ -31,6 +32,13 @@ explain the root cause in the final answer and choose a recovery action when
 one is available.
 When the task is complete, respond with DONE: followed by a concise summary.
 Do not claim that a tool ran unless its result appears in the conversation.
+`.trim();
+
+const DIRECT_ANSWER_SYSTEM_PROMPT = `
+You answer general informational questions clearly and directly.
+Do not request tools, inspect the workspace, or claim to have performed an
+action. If the question depends on files or a particular project, explain what
+information is missing instead.
 `.trim();
 
 type DeepSeekToolCall = {
@@ -441,14 +449,21 @@ function requestBody(
   model: string,
   effort: ReasoningEffort,
   stream: boolean,
+  interactionMode: ModelCallOptions["interactionMode"] = "agent",
 ): Record<string, unknown> {
   return {
     model,
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
+      {
+        role: "system",
+        content:
+          interactionMode === "direct"
+            ? DIRECT_ANSWER_SYSTEM_PROMPT
+            : SYSTEM_PROMPT,
+      },
       ...history.map(toDeepSeekMessage),
     ],
-    tools: DEEPSEEK_TOOLS,
+    ...(interactionMode === "direct" ? {} : { tools: DEEPSEEK_TOOLS }),
     thinking: {
       type: effort === "none" ? "disabled" : "enabled",
     },
@@ -683,6 +698,7 @@ export function createDeepSeekAdapter(
     async call(
       history: readonly ModelMessage[],
       signal?: AbortSignal,
+      callOptions?: ModelCallOptions,
     ): Promise<ModelCallResult> {
       const controller = new AbortController();
       const timeout = setTimeout(() => {
@@ -701,7 +717,13 @@ export function createDeepSeekAdapter(
             Authorization: `Bearer ${options.apiKey}`,
           },
           body: JSON.stringify(
-            requestBody(history, options.model, options.effort, false),
+            requestBody(
+              history,
+              options.model,
+              options.effort,
+              false,
+              callOptions?.interactionMode,
+            ),
           ),
           signal: requestSignal,
         });
@@ -765,6 +787,7 @@ export function createDeepSeekAdapter(
     async *stream(
       history: readonly ModelMessage[],
       signal?: AbortSignal,
+      callOptions?: ModelCallOptions,
     ): AsyncGenerator<ModelStreamEvent> {
       const controller = new AbortController();
       const timeout = setTimeout(() => {
@@ -784,7 +807,13 @@ export function createDeepSeekAdapter(
             Authorization: `Bearer ${options.apiKey}`,
           },
           body: JSON.stringify(
-            requestBody(history, options.model, options.effort, true),
+            requestBody(
+              history,
+              options.model,
+              options.effort,
+              true,
+              callOptions?.interactionMode,
+            ),
           ),
           signal: requestSignal,
         });
