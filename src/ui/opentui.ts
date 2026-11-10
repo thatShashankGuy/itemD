@@ -4,8 +4,7 @@ import {
   BoxRenderable,
   CliRenderEvents,
   ImageRenderable,
-  InputRenderable,
-  InputRenderableEvents,
+  TextareaRenderable,
   ScrollBoxRenderable,
   TextRenderable,
   createClipboard,
@@ -72,6 +71,10 @@ import {
   formatActivitySnapshot,
   formatShellApprovalPanel,
 } from "./opentui-activity.ts";
+import {
+  composeWithEditor,
+  type EditorComposerOptions,
+} from "./editor.ts";
 
 type ThemeName = "dark" | "light";
 
@@ -151,6 +154,7 @@ const KEYBOARD_HELP =
   "Keys\n" +
   "Esc             Stop the active agent task\n" +
   "!<command>      Run a command through the shell policy\n" +
+  "$editor         Compose a message in the default editor\n" +
   "PgUp/PgDn      Scroll the transcript\n" +
   "Ctrl+Up/Down   Fine-scroll the transcript\n" +
   "Mouse drag     Select and copy transcript text\n" +
@@ -271,12 +275,13 @@ function logoSource(): URL | Blob {
   return new URL(assetPath, import.meta.url);
 }
 
-type OpenTuiOptions = {
+export type OpenTuiOptions = {
   resumeSessionId?: string;
   sessionDbPath?: string;
   shellMode?: ShellExecutionMode;
   workspaceRoot: string;
   config: ConfigurationOptions;
+  editor?: Pick<EditorComposerOptions, "env" | "tempDirectory" | "execute">;
 };
 
 function getOpenTuiSessionDbPath(
@@ -628,15 +633,16 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   const inputBox = new BoxRenderable(renderer, {
     id: "task-input-box",
     width: "100%",
-    height: 3,
+    height: 5,
     flexShrink: 0,
     paddingX: 1,
     backgroundColor: COLORS.panel,
   });
-  const taskInput = new InputRenderable(renderer, {
+  const taskInput = new TextareaRenderable(renderer, {
     id: "task-input",
     width: "100%",
-    value: "",
+    height: 3,
+    initialValue: "",
     placeholder: "Describe a task or type / for commands",
     backgroundColor: COLORS.panel,
     focusedBackgroundColor: COLORS.panel,
@@ -646,6 +652,13 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     cursorColor: COLORS.accent,
     selectionBg: COLORS.selectionBackground,
     selectionFg: COLORS.selectionText,
+    keyBindings: [
+      { name: "return", action: "submit" },
+      { name: "kpenter", action: "submit" },
+      { name: "linefeed", action: "submit" },
+      { name: "return", shift: true, action: "newline" },
+      { name: "kpenter", shift: true, action: "newline" },
+    ],
   });
   inputBox.add(taskInput);
 
@@ -896,7 +909,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     pending.cleanup();
     approvalPanel.visible = false;
     approvalText.content = "";
-    taskInput.value = "";
+    taskInput.setText("");
     taskInput.placeholder = "itemD is working…";
     footer.content = DEFAULT_FOOTER_TEXT;
     footer.fg = COLORS.muted;
@@ -1446,6 +1459,55 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     );
   };
 
+  const composeMessageWithEditor = async (
+    signal: AbortSignal,
+  ): Promise<void> => {
+    let suspended = false;
+
+    try {
+      await renderer.suspend();
+      suspended = true;
+      const editorOptions = options.editor ?? {};
+      const result = await composeWithEditor({
+        ...editorOptions,
+        cwd: options.workspaceRoot,
+        env: editorOptions.env ?? options.config.env ?? process.env,
+        signal,
+      });
+
+      if (!result.ok) {
+        appendLog("editor  ", result.message, COLORS.warning);
+        return;
+      }
+
+      taskInput.setText(result.content);
+      updateCommandPalette(result.content);
+      appendLog(
+        "editor  ",
+        `Loaded ${result.content.length} characters into the composer. Review and submit when ready.`,
+        COLORS.success,
+      );
+    } catch {
+      appendLog(
+        "editor  ",
+        "The default editor could not be opened. The composer is unchanged.",
+        COLORS.warning,
+      );
+    } finally {
+      if (suspended && !renderer.isDestroyed) {
+        try {
+          await renderer.resume();
+        } catch {
+          appendLog(
+            "editor  ",
+            "The terminal could not be resumed after editor composition.",
+            COLORS.error,
+          );
+        }
+      }
+    }
+  };
+
   const applyConfigurationSelection = async (
     selection: Partial<Pick<ItemDConfiguration, "model" | "effort">>,
   ): Promise<void> => {
@@ -1845,20 +1907,37 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     }
 
     const isDirectShell = line.startsWith("!");
-    const isAgentTask = !line.startsWith("/") && !isDirectShell;
-    const runController = isAgentTask || isDirectShell
+    const isEditorCommand = line === "$editor";
+    const isAgentTask = !line.startsWith("/") && !isDirectShell && !isEditorCommand;
+    const runController = isAgentTask || isDirectShell || isEditorCommand
       ? new AbortController()
       : null;
     activeRunController = runController;
     setBusy(
       true,
-      isAgentTask ? "RUNNING" : isDirectShell ? "SHELL" : "COMMAND",
+      isAgentTask
+        ? "RUNNING"
+        : isDirectShell
+          ? "SHELL"
+          : isEditorCommand
+            ? "EDITOR"
+            : "COMMAND",
       isAgentTask,
     );
 
     try {
       if (line.startsWith("/")) {
         await handleCommand(line);
+        return;
+      }
+
+      if (isEditorCommand) {
+        if (runController === null) {
+          appendLog("editor  ", "The editor composer is unavailable.", COLORS.error);
+          return;
+        }
+
+        await composeMessageWithEditor(runController.signal);
         return;
       }
 
@@ -1968,7 +2047,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     selectedCommandIndex =
       (selectedCommandIndex + indexDelta + visibleCommands.length) %
       visibleCommands.length;
-    updateCommandPalette(taskInput.value);
+    updateCommandPalette(taskInput.plainText);
   };
 
   const completeSelectedCommand = (): TuiCommand | undefined => {
@@ -1978,8 +2057,8 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       return undefined;
     }
 
-    taskInput.value = `${selected.name}${selected.name === "/replay" ? " " : ""}`;
-    updateCommandPalette(taskInput.value);
+    taskInput.setText(`${selected.name}${selected.name === "/replay" ? " " : ""}`);
+    updateCommandPalette(taskInput.plainText);
     return selected;
   };
 
@@ -2158,8 +2237,8 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
 
       if (
         selected !== undefined &&
-        !taskInput.value.includes(" ") &&
-        (taskInput.value !== selected.name || selected.name === "/replay")
+        !taskInput.plainText.includes(" ") &&
+        (taskInput.plainText !== selected.name || selected.name === "/replay")
       ) {
         key.preventDefault();
         completeSelectedCommand();
@@ -2186,12 +2265,13 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       toastTimer = null;
     }
   });
-  taskInput.on(InputRenderableEvents.INPUT, (value: string) => {
+  taskInput.onContentChange = () => {
     selectedCommandIndex = 0;
-    updateCommandPalette(value);
-  });
-  taskInput.on(InputRenderableEvents.ENTER, (value: string) => {
-    const line = value.trim();
+    updateCommandPalette(taskInput.plainText);
+  };
+  taskInput.onSubmit = () => {
+    const content = taskInput.plainText;
+    const line = content.trim();
 
     if (pendingShellApproval !== null) {
       const decision = parseShellApprovalDecision(line);
@@ -2209,10 +2289,14 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       return;
     }
 
-    taskInput.value = "";
+    taskInput.setText("");
     updateCommandPalette("");
-    void handleLine(line);
-  });
+    void handleLine(
+      line.startsWith("/") || line.startsWith("!") || line === "$editor"
+        ? line
+        : content,
+    );
+  };
 
   clearTranscript();
   renderSessionHistory();

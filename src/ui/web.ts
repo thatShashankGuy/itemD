@@ -483,6 +483,12 @@ window.itemdApp = () => ({
       catch (error) { this.addEntry('error', error.message, 'error'); }
       return;
     }
+    if (line === '$editor') {
+      this.input = ''; this.argumentHint = '';
+      try { await this.submitCommand(line); }
+      catch (error) { this.addEntry('error', error.message, 'error'); }
+      return;
+    }
     if (line === '/theme' || line === '/theme light' || line === '/theme dark') {
       this.theme = line === '/theme light' ? 'light' : line === '/theme dark' ? 'dark' : this.theme === 'dark' ? 'light' : 'dark';
       this.input = ''; this.argumentHint = '';
@@ -781,6 +787,7 @@ export async function runWeb(options: WebOptions): Promise<void> {
           const value = JSON.parse(await readBody(request)) as unknown;
           const line = isRecord(value) && typeof value.line === "string" ? value.line.trim() : "";
           if (line.length === 0) { sendJson(response, 400, { message: "Input cannot be empty." }); return; }
+          if (line === "$editor") { sendJson(response, 200, { message: "$editor is available only in the terminal composer. Use the terminal interface to open your local editor.", tone: "warning" }); return; }
           if (line.startsWith("!")) { startShell(line); sendJson(response, 202, { accepted: true }); return; }
           if (!line.startsWith("/")) { startTask(line); sendJson(response, 202, { accepted: true }); return; }
           const command = await handleCommand(line); sendJson(response, 200, command); return;

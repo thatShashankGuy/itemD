@@ -158,6 +158,16 @@ conservative; workspace and action requests remain subject to the existing
 tool validation and permission policy. The selected mode is recorded in the
 run-start trace event.
 
+Type `$editor` in the terminal composer to open the configured default editor.
+`VISUAL` takes precedence over `EDITOR`; editor values may contain quoted
+arguments (for example, `code --wait`) and are executed without a shell. If
+neither variable is set, itemD uses `vi` on Unix-like systems and `notepad.exe`
+on Windows. The editor writes a private temporary Markdown file, and its
+contents are loaded back into the composer without being submitted. Empty
+messages, editor failures, and cancellation leave the composer usable. The web
+interface reports that `$editor` is terminal-only because a browser cannot
+open a local editor process.
+
 To run a direct inspection command, prefix it with `!`, for example
 `!git status` or `!npm test`. Direct commands use the same workspace boundary,
 argument parsing, timeout, output limits, and shell allowlist as model-requested
@@ -179,6 +189,7 @@ shell calls; they are never passed through a system shell.
 | `/clear` | Clear the terminal |
 | `/new` | Start a new session and retain the active configuration |
 | `/theme [dark\|light]` | Switch themes; omit the argument to toggle |
+| `$editor` | Compose a message in the terminal’s default editor |
 | `/quit` or `/exit` | Exit the interface |
 
 From a standalone installation, use `itemd --version` to show the installed
