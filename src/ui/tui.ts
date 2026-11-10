@@ -4,6 +4,7 @@ import {
   runAgent,
   type AgentRunResult,
 } from "../agent/runner.ts";
+import type { AgentRuntimeEvent } from "../agent/events.ts";
 import {
   type ConfigurationOptions,
   type ItemDConfiguration,
@@ -69,11 +70,18 @@ function printHelp(io: TuiIO): void {
   writeLine(io, "Any other input starts a new independent agent task.");
 }
 
-function printAgentResult(io: TuiIO, result: AgentRunResult): void {
+function printAgentResult(
+  io: TuiIO,
+  result: AgentRunResult,
+  streamedResponse = false,
+): void {
   writeLine(io);
 
   if (result.ok) {
-    writeLine(io, `[done] ${result.answer}`);
+    writeLine(
+      io,
+      streamedResponse ? "[done] Response complete." : `[done] ${result.answer}`,
+    );
   } else {
     writeLine(io, `[${result.status}] ${result.error.message}`);
   }
@@ -579,6 +587,15 @@ export async function runTui(
           sessionContext.session.id,
           { role: "user", content: line },
         );
+        let streamedModelStep: number | null = null;
+        let streamedModelText = "";
+        let streamedOutputOpen = false;
+        const closeStreamOutput = (): void => {
+          if (streamedOutputOpen) {
+            writeLine(io);
+            streamedOutputOpen = false;
+          }
+        };
         const result = await runAgent(
           line,
           active.adapter,
@@ -603,10 +620,46 @@ export async function runTui(
                 writeLine(io, `[reasoning step ${event.step}] ${event.text}`);
               }
             },
+            onRuntimeEvent: (event: AgentRuntimeEvent): void => {
+              if (event.type === "model_delta") {
+                if (streamedModelStep !== event.step) {
+                  closeStreamOutput();
+                  streamedModelStep = event.step;
+                  streamedModelText = "";
+                  io.write(`assistant step ${event.step}  `);
+                  streamedOutputOpen = true;
+                }
+
+                streamedModelText += event.text;
+                io.write(event.text);
+                return;
+              }
+
+              if (event.type === "tool_started") {
+                closeStreamOutput();
+                writeLine(io, `tool  ${event.toolName} started`);
+                return;
+              }
+
+              if (event.type === "tool_finished") {
+                closeStreamOutput();
+                writeLine(
+                  io,
+                  `tool  ${event.toolName} ${event.result.ok ? "completed" : "failed"}`,
+                );
+                return;
+              }
+
+              if (event.type === "run_completed" || event.type === "run_failed") {
+                closeStreamOutput();
+              }
+            },
           },
         );
 
-        printAgentResult(io, result);
+        closeStreamOutput();
+
+        printAgentResult(io, result, streamedModelText.length > 0);
       } catch (error: unknown) {
         writeLine(io, `[itemD error] ${getErrorMessage(error)}`);
         writeLine(io);

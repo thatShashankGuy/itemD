@@ -20,6 +20,7 @@ import {
   runAgent,
   type AgentRunEvent,
 } from "../agent/runner.ts";
+import type { AgentRuntimeEvent } from "../agent/events.ts";
 import {
   resolveConfiguration,
   readConfiguration,
@@ -741,7 +742,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     label: string,
     message: string,
     color: string = COLORS.text,
-  ): void => {
+  ): TextRenderable => {
     const colorRole = getLogColorRole(COLORS, color);
     const entry = new TextRenderable(renderer, {
       content: `${label}${message}`,
@@ -756,6 +757,63 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     transcriptEntries.push({ renderable: entry, colorRole });
     transcript.add(entry);
     transcript.scrollTo(Infinity);
+    return entry;
+  };
+
+  let liveAssistantEntry: TextRenderable | null = null;
+  let liveAssistantStep: number | null = null;
+  let liveAssistantText = "";
+
+  const resetLiveAssistant = (): void => {
+    liveAssistantEntry = null;
+    liveAssistantStep = null;
+    liveAssistantText = "";
+  };
+
+  const appendModelDelta = (step: number, text: string): void => {
+    if (liveAssistantEntry === null || liveAssistantStep !== step) {
+      liveAssistantStep = step;
+      liveAssistantText = "";
+      liveAssistantEntry = appendLog(
+        `assistant step ${step}\n`,
+        "",
+        COLORS.text,
+      );
+    }
+
+    liveAssistantText += text;
+    liveAssistantEntry.content =
+      `assistant step ${step}\n${liveAssistantText}`;
+    transcript.scrollTo(Infinity);
+  };
+
+  const handleRuntimeEvent = (event: AgentRuntimeEvent): void => {
+    if (event.type === "model_delta") {
+      appendModelDelta(event.step, event.text);
+      return;
+    }
+
+    if (event.type === "tool_started") {
+      appendLog(
+        "tool  ",
+        `${event.toolName} started (step ${event.step})`,
+        COLORS.muted,
+      );
+      return;
+    }
+
+    if (event.type === "tool_finished") {
+      appendLog(
+        "tool  ",
+        `${event.toolName} ${event.result.ok ? "completed" : "failed"}`,
+        event.result.ok ? COLORS.muted : COLORS.error,
+      );
+      return;
+    }
+
+    if (event.type === "run_completed" && liveAssistantEntry !== null) {
+      liveAssistantEntry.content = `assistant  ${event.result.answer}`;
+    }
   };
 
   const resolvePendingShellApproval = (
@@ -845,6 +903,8 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   };
 
   const resetTranscript = (message: string): void => {
+    resetLiveAssistant();
+
     for (const child of transcript.getChildren()) {
       child.destroyRecursively();
     }
@@ -879,6 +939,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
 
   const startNewSession = (): void => {
     sessionContext = sessionService.createSession(options.workspaceRoot);
+    resetLiveAssistant();
     updateHeader();
     resetTranscript("New session started. Active configuration retained.");
     appendLog("session  ", sessionContext.session.id, COLORS.muted);
@@ -1645,6 +1706,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
         `Running with ${active.configuration.model}…`,
         COLORS.muted,
       );
+      resetLiveAssistant();
       sessionContext = sessionService.appendMessage(
         sessionContext.session.id,
         { role: "user", content: line },
@@ -1676,6 +1738,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
             );
           }
         },
+        onRuntimeEvent: handleRuntimeEvent,
       };
       const result = await runAgent(
         line,
@@ -1689,7 +1752,11 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       }
 
       if (result.ok) {
-        appendLog("done  ", result.answer, COLORS.success);
+        appendLog(
+          "done  ",
+          liveAssistantText.length === 0 ? result.answer : "Response complete.",
+          COLORS.success,
+        );
       } else if (result.status === "cancelled") {
         appendLog("stopped  ", result.error.message, COLORS.warning);
       } else {
