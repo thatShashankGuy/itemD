@@ -78,30 +78,16 @@ describe("direct shell input", () => {
     });
   });
 
-  test("does not allow cat to wait for stdin", async () => {
-    const result = await executePrefixedShellCommand("cat", tmpdir());
+  test("allows a human command outside the model shell allowlist", async () => {
+    const result = await executePrefixedShellCommand(
+      `node -e "process.stdout.write('human command')"`,
+      tmpdir(),
+    );
 
     expect(result).toMatchObject({
-      ok: false,
-      error: {
-        code: "COMMAND_DENIED",
-        message: "cat requires at least one file path",
-      },
+      ok: true,
+      output: { stdout: "human command", exitCode: 0 },
     });
-  });
-
-  test("routes disallowed commands through the shell policy", async () => {
-    const result = await executePrefixedShellCommand("echo unsafe", tmpdir());
-
-    expect(result).toEqual({
-      ok: false,
-      error: {
-        code: "COMMAND_DENIED",
-        message: "Executable is not allowed: echo",
-      },
-    });
-    expect(formatShellResult("echo unsafe", result)).toContain(
-      "[shell error] Executable is not allowed: echo",
-    );
+    expect(formatShellResult("node -e ...", result)).toContain("human command");
   });
 });
