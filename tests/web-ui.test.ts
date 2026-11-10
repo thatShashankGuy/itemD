@@ -74,6 +74,11 @@ describe("web UI", () => {
     expect(html).toContain("Configure");
     expect(html).toContain("aria-labelledby=\"config-title\"");
     expect(html).toContain("--scrim: rgb(255 255 255 / .7)");
+    expect(html).toContain("<textarea");
+    expect(html).toContain("@keydown.enter.exact.prevent=\"sendLine()\"");
+    expect(html).toContain("@keydown.shift.enter.stop");
+    expect(html).toContain("filteredCommands");
+    expect(html).not.toContain(">Send</button>");
     expect(html).not.toContain("class=\"sidebar\"");
 
     const stateResponse = await fetch(withToken(browserUrl!, "/api/state"));

@@ -215,8 +215,9 @@ function pageHtml(token: string): string {
     .activity { min-height: 1.8rem; padding: .35rem 1rem; color: var(--muted); background: var(--panel); }
     .approval { padding: .75rem 1rem; color: var(--warning); background: var(--panel); white-space: pre-wrap; }
     .composer { display: flex; gap: .5rem; padding: .6rem .75rem; background: var(--panel); }
-    .composer input, select { width: 100%; min-width: 0; border: 0; border-radius: 4px; padding: .55rem; color: var(--text); background: var(--bg); outline: 0; }
-    .composer input:focus, select:focus { box-shadow: inset 0 -2px var(--accent); }
+    .composer textarea, select { width: 100%; min-width: 0; border: 0; border-radius: 4px; padding: .55rem; color: var(--text); background: var(--bg); outline: 0; }
+    .composer textarea { flex: 1; resize: vertical; min-height: 2.2rem; max-height: 12rem; }
+    .composer textarea:focus, select:focus { box-shadow: inset 0 -2px var(--accent); }
     .command-list { padding: .5rem 1rem; color: var(--text); background: var(--panel); white-space: pre-wrap; }
     footer { min-height: 1.8rem; padding: .35rem .75rem; color: var(--muted); background: var(--panel); }
     .empty { color: var(--muted); padding: 2rem 0; text-align: center; }
@@ -226,10 +227,10 @@ function pageHtml(token: string): string {
     .modal label { display: block; margin: .8rem 0 .35rem; color: var(--muted); }
     .modal .value { color: var(--text); }
     .modal-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1.2rem; }
-    @media (max-width: 600px) { .brand { display: none; } .composer { flex-wrap: wrap; } .composer input { flex-basis: 100%; } }
+    @media (max-width: 600px) { .brand { display: none; } .composer { flex-wrap: wrap; } .composer textarea { flex-basis: 100%; } }
   </style>
 </head>
-<body x-data="itemdApp()" x-init="init()" :class="theme === 'light' ? 'light' : ''" @keydown.escape.window="configOpen = false">
+<body x-data="itemdApp()" :class="theme === 'light' ? 'light' : ''" @keydown.escape.window="configOpen = false">
 <div class="app">
   <header>
     <img id="logo" src="/assets/logo.png?token=${encodeURIComponent(token)}" alt="itemD logo">
@@ -249,11 +250,14 @@ function pageHtml(token: string): string {
     </section>
     <div class="activity" x-show="activity" x-text="activity" x-cloak></div>
     <div class="approval" x-show="approval" x-text="approval" x-cloak></div>
-    <div class="command-list" x-show="commandList" x-text="commandList" x-cloak></div>
+    <div class="command-list" x-show="filteredCommands.length > 0" x-cloak>
+      <template x-for="command in filteredCommands" :key="command.usage">
+        <div x-text="command.usage + '  ' + command.description"></div>
+      </template>
+    </div>
     <form class="composer" @submit.prevent="sendLine()">
-      <input type="text" autocomplete="off" placeholder="Describe a task, type / for commands, or ! for shell" x-model="input" x-ref="input">
+      <textarea rows="1" autocomplete="off" placeholder="Describe a task, type / for commands, or ! for shell" x-model="input" x-ref="input" @keydown.enter.exact.prevent="sendLine()" @keydown.shift.enter.stop></textarea>
       <button class="danger" type="button" @click="stopTask()" x-show="busy">Stop</button>
-      <button class="primary" type="submit" :disabled="busy">Send</button>
     </form>
   </main>
   <footer x-text="footer"></footer>
@@ -284,9 +288,29 @@ function pageHtml(token: string): string {
 <script>
 window.itemdApp = () => ({
   token: ${tokenJson}, sequence: 0, busy: false, status: 'READY', theme: 'dark',
-  input: '', footer: 'Enter submits • / commands • ! shell', activity: '', approval: '', commandList: '',
+  input: '', footer: 'Enter submits • Shift+Enter newline • / commands • ! shell', activity: '', approval: '',
+  commands: [
+    { usage: '/help', description: 'Show commands and keyboard controls' },
+    { usage: '/config', description: 'Show active configuration' },
+    { usage: '/model', description: 'Select or change the active model' },
+    { usage: '/effort', description: 'Select reasoning effort' },
+    { usage: '/reasoning', description: 'Toggle recorded reasoning' },
+    { usage: '/reload', description: 'Reload configuration' },
+    { usage: '/setup', description: 'Open key setup' },
+    { usage: '/replays', description: 'List recorded runs' },
+    { usage: '/replay', description: 'Display a recorded run' },
+    { usage: '/clear', description: 'Clear the transcript' },
+    { usage: '/new', description: 'Start a new session' },
+    { usage: '/theme', description: 'Switch light or dark theme' },
+    { usage: '/exit', description: 'Exit itemD' },
+  ],
   entries: [], showingReasoning: false, configOpen: false, models: [], efforts: [], model: '', effort: '',
   state: { provider: '', model: '', effort: '', webSearch: false, workspace: '', busy: false }, timer: null,
+  get filteredCommands() {
+    const prefix = this.input.trimStart();
+    if (!prefix.startsWith('/') || /\s/.test(prefix)) return [];
+    return this.commands.filter((command) => command.usage.startsWith(prefix.toLowerCase()));
+  },
   async api(path, options = {}) {
     const separator = path.includes('?') ? '&' : '?';
     const response = await fetch(path + separator + 'token=' + encodeURIComponent(this.token), {
