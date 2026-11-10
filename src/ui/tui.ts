@@ -44,6 +44,7 @@ import {
   executePrefixedShellCommand,
   formatShellResult,
 } from "./shell.ts";
+import type { EditorComposerOptions } from "./editor.ts";
 
 export {
   runSetup,
@@ -67,6 +68,7 @@ function printHelp(io: TuiIO): void {
   writeLine(io, "  exit()               Exit the interface");
   writeLine(io);
   writeLine(io, "Prefix a command with ! to run it through the shell policy.");
+  writeLine(io, "In the full-screen terminal composer, type $editor to compose in your default editor.");
   writeLine(io, "Any other input starts a new independent agent task.");
 }
 
@@ -327,6 +329,7 @@ export type RunTuiOptions = {
   shellMode?: ShellExecutionMode;
   workspaceRoot?: string;
   config?: ConfigurationOptions;
+  editor?: Pick<EditorComposerOptions, "env" | "tempDirectory" | "execute">;
 };
 
 function getTuiSessionDbPath(
@@ -369,6 +372,7 @@ export async function runTui(
       ...(options.shellMode === undefined
         ? {}
         : { shellMode: options.shellMode }),
+      ...(options.editor === undefined ? {} : { editor: options.editor }),
     });
     return;
   }
@@ -566,6 +570,15 @@ export async function runTui(
           workspaceRoot,
         );
         writeLine(io, formatShellResult(shellInput, shellResult));
+        writeLine(io);
+        continue;
+      }
+
+      if (line === "$editor") {
+        writeLine(
+          io,
+          "$editor is available in the full-screen terminal composer, not the line-oriented test interface.",
+        );
         writeLine(io);
         continue;
       }
