@@ -853,6 +853,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     const recentSessions: RecentSessionModel[] = sessionService
       .listSessions(10)
       .filter((session) => session.workspaceRoot === options.workspaceRoot)
+      .slice(0, 5)
       .map((session) => ({
         id: session.id,
         workspaceName: basename(session.workspaceRoot),

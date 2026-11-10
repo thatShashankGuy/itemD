@@ -27,7 +27,7 @@ export function formatSidebarContent(model: SidebarModel): string {
     : model.recentSessions.map((session) => {
       const marker = session.active ? "*" : " ";
       const shortId = session.id.slice(0, 8);
-      return `${marker} ${shortId}  ${session.workspaceName}  ${formatSessionTime(session.updatedAt)}`;
+      return `${marker} ${shortId}  ${formatSessionTime(session.updatedAt)}`;
     });
 
   return [
@@ -53,5 +53,5 @@ export function formatSidebarContent(model: SidebarModel): string {
 }
 
 function formatSessionTime(updatedAt: string): string {
-  return updatedAt.replace("T", " ").replace(/:\d{2}\.\d{3}Z$/, "Z");
+  return updatedAt.replace("T", " ").slice(5, 16);
 }
