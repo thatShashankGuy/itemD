@@ -2,6 +2,7 @@ import {
   mkdtemp,
   realpath,
   rm,
+  writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -59,6 +60,34 @@ describe("direct shell input", () => {
       output: { ok: true, cwd: directory },
     });
     expect(formatShellResult("pwd", result)).toContain(directory);
+  });
+
+  test("executes cat for a workspace file", async () => {
+    const directory = await realpath(
+      await mkdtemp(join(tmpdir(), "itemd-shell-cat-test-")),
+    );
+    temporaryDirectories.push(directory);
+    const filePath = join(directory, "message.txt");
+    await writeFile(filePath, "hello from cat\n");
+
+    const result = await executePrefixedShellCommand("cat message.txt", directory);
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: { stdout: "hello from cat\n", exitCode: 0 },
+    });
+  });
+
+  test("does not allow cat to wait for stdin", async () => {
+    const result = await executePrefixedShellCommand("cat", tmpdir());
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "COMMAND_DENIED",
+        message: "cat requires at least one file path",
+      },
+    });
   });
 
   test("routes disallowed commands through the shell policy", async () => {
