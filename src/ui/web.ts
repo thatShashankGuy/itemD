@@ -187,7 +187,7 @@ function pageHtml(token: string): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>itemD — web workspace</title>
   <style>
-    :root { color-scheme: dark; --bg: #0d1117; --panel: #161b22; --panel-2: #1c2128; --text: #f0f3f6; --muted: #8b949e; --accent: #f04444; --success: #56d364; --warning: #e3b341; --error: #ff7b72; --user: #ff7b72; }
+    :root { color-scheme: dark; --bg: #0d1117; --panel: #161b22; --panel-2: #1c2128; --text: #f0f3f6; --muted: #8b949e; --accent: #f04444; --success: #56d364; --warning: #e3b341; --error: #ff7b72; --user: #ff7b72; --scrim: rgb(0 0 0 / .55); }
     * { box-sizing: border-box; }
     [x-cloak] { display: none !important; }
     body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text); font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
@@ -196,7 +196,7 @@ function pageHtml(token: string): string {
     button:hover { color: var(--accent); }
     button.primary { color: white; background: var(--accent); }
     button.danger { color: var(--error); }
-    body.light { --bg: #f6f8fa; --panel: #ffffff; --panel-2: #f0f2f4; --text: #1f2328; --muted: #59636e; --accent: #c62828; --success: #1a7f37; --warning: #9a6700; --error: #cf222e; --user: #b42318; }
+    body.light { --bg: #f6f8fa; --panel: #ffffff; --panel-2: #f0f2f4; --text: #1f2328; --muted: #59636e; --accent: #c62828; --success: #1a7f37; --warning: #9a6700; --error: #cf222e; --user: #b42318; --scrim: rgb(255 255 255 / .7); }
     .app { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
     header { display: flex; align-items: center; gap: .75rem; padding: .35rem .75rem; background: var(--bg); }
     #logo { width: 48px; height: 32px; object-fit: contain; image-rendering: pixelated; }
@@ -220,7 +220,7 @@ function pageHtml(token: string): string {
     .command-list { padding: .5rem 1rem; color: var(--text); background: var(--panel); white-space: pre-wrap; }
     footer { min-height: 1.8rem; padding: .35rem .75rem; color: var(--muted); background: var(--panel); }
     .empty { color: var(--muted); padding: 2rem 0; text-align: center; }
-    .modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgb(0 0 0 / .55); }
+    .modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 1rem; background: var(--scrim); }
     .modal { width: min(30rem, 100%); max-width: 30rem; padding: 1.25rem; background: var(--panel); box-shadow: 0 1rem 3rem rgb(0 0 0 / .35); }
     .modal h2 { margin: 0 0 1rem; color: var(--accent); }
     .modal label { display: block; margin: .8rem 0 .35rem; color: var(--muted); }
@@ -361,7 +361,7 @@ window.itemdApp = () => ({
       this.configOpen = false;
     } catch (error) { this.addEntry('configuration error', error.message, 'error'); }
   },
-  async openSetup() { this.configOpen = false; try { await this.submitCommand('/setup browser'); } catch (error) { this.addEntry('configuration error', error.message, 'error'); } },
+  async openSetup() { this.configOpen = false; try { await this.submitCommand('/setup browser ' + this.theme); } catch (error) { this.addEntry('configuration error', error.message, 'error'); } },
   async reloadConfig() { try { await this.submitCommand('/reload'); } catch (error) { this.addEntry('configuration error', error.message, 'error'); } },
   toggleTheme() { this.theme = this.theme === 'dark' ? 'light' : 'dark'; },
   async init() {
@@ -455,13 +455,14 @@ export async function runWeb(options: WebOptions): Promise<void> {
     if (!written.ok) { emitLog(written.error.message, "configuration error  ", "error"); return; }
     if (await loadReplacement()) emitLog("Saved and applied.", "configuration  ", "success");
   };
-  const runSetup = (): void => {
+  const runSetup = (theme: "dark" | "light" = "dark"): void => {
     if (setupRunning) { emitLog("Browser setup is already open.", "configuration  ", "warning"); return; }
     setupRunning = true;
     emitLog("Browser setup opened. Return here after saving.", "configuration  ", "text");
     const setupOptions = {
       config,
       initialConfiguration: active.configuration,
+      theme,
       ...(options.openBrowser === undefined ? {} : { openBrowser: options.openBrowser }),
     };
     void runBrowserSetup(setupOptions).then(async (result) => {
@@ -477,7 +478,12 @@ export async function runWeb(options: WebOptions): Promise<void> {
     if (command === "/help") return { message: `${formatTuiCommandHelp()}\n\nEnter submits tasks. Prefix shell commands with !.` };
     if (command === "/config") return { message: `provider: ${active.configuration.provider}\nmodel: ${active.configuration.model}\neffort: ${active.configuration.effort}\nweb search: ${active.configuration.webSearch?.enabled ? "enabled" : "disabled"}` };
     if (command === "/reload") { const ok = await loadReplacement(); return { message: ok ? "Configuration reloaded." : "Reload failed.", tone: ok ? "success" : "error" }; }
-    if (command === "/setup" || command === "/adapter") { if (words[1] !== undefined && words[1] !== "browser") return { message: "Usage: /setup [browser]", tone: "warning" }; runSetup(); return { message: "Browser setup opened.", tone: "text" }; }
+    if (command === "/setup" || command === "/adapter") {
+      if (words[1] !== undefined && words[1] !== "browser") return { message: "Usage: /setup [browser]", tone: "warning" };
+      const requestedTheme = words[2] === "light" || words[2] === "dark" ? words[2] : "dark";
+      if (words.length > 3 || (words[2] !== undefined && words[2] !== "light" && words[2] !== "dark")) return { message: "Usage: /setup browser [dark|light]", tone: "warning" };
+      runSetup(requestedTheme); return { message: "Browser setup opened.", tone: "text" };
+    }
     if (command === "/model") {
       const provider = PROVIDER_CATALOG.find((candidate) => candidate.id === active.configuration.provider && candidate.enabled) ?? PROVIDER_CATALOG[0];
       const requested = words[1];

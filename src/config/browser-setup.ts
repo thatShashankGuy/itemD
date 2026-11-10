@@ -25,7 +25,10 @@ export type BrowserSetupOptions = {
   port?: number;
   openBrowser?: (url: string) => Promise<void>;
   signal?: AbortSignal;
+  theme?: "dark" | "light";
 };
+
+type BrowserTheme = "dark" | "light";
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>'"]/g, (character) => {
@@ -52,7 +55,31 @@ function sendHtml(
   response.end(html);
 }
 
-function page(title: string, body: string): string {
+function page(title: string, body: string, theme: BrowserTheme = "dark"): string {
+  const palette = theme === "light"
+    ? {
+        background: "#f6f8fa",
+        panel: "#ffffff",
+        border: "#afb8c1",
+        input: "#f0f2f4",
+        text: "#1f2328",
+        muted: "#59636e",
+        accent: "#c62828",
+        errorBackground: "#ffebe9",
+        error: "#cf222e",
+      }
+    : {
+        background: "#0d1117",
+        panel: "#161b22",
+        border: "#30363d",
+        input: "#0d1117",
+        text: "#f0f3f6",
+        muted: "#8b949e",
+        accent: "#f04444",
+        errorBackground: "#3d1c1c",
+        error: "#ff7b72",
+      };
+
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -60,19 +87,19 @@ function page(title: string, body: string): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)} — itemD</title>
   <style>
-    :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0d1117; color: #f0f3f6; }
-    main { width: min(34rem, calc(100vw - 2rem)); box-sizing: border-box; padding: 2rem; border: 1px solid #30363d; border-radius: 12px; background: #161b22; }
-    h1 { margin-top: 0; color: #ff7b72; }
-    p, label { color: #c9d1d9; }
+    :root { color-scheme: ${theme}; font-family: ui-sans-serif, system-ui, sans-serif; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: ${palette.background}; color: ${palette.text}; }
+    main { width: min(34rem, calc(100vw - 2rem)); box-sizing: border-box; padding: 2rem; border: 1px solid ${palette.border}; border-radius: 12px; background: ${palette.panel}; }
+    h1 { margin-top: 0; color: ${palette.accent}; }
+    p, label { color: ${palette.text}; }
     label { display: block; margin: 1rem 0 .35rem; }
-    input, select { box-sizing: border-box; width: 100%; padding: .65rem; border: 1px solid #484f58; border-radius: 6px; background: #0d1117; color: #f0f3f6; }
+    input, select { box-sizing: border-box; width: 100%; padding: .65rem; border: 1px solid ${palette.border}; border-radius: 6px; background: ${palette.input}; color: ${palette.text}; }
     .check { display: flex; gap: .6rem; align-items: center; }
     .check input { width: auto; }
-    button { margin-top: 1.25rem; padding: .65rem 1rem; border: 0; border-radius: 6px; background: #f04444; color: white; cursor: pointer; }
-    button.secondary { margin-left: .5rem; background: #30363d; }
-    .hint { font-size: .9rem; color: #8b949e; }
-    .error { padding: .75rem; border-radius: 6px; background: #3d1c1c; color: #ff7b72; }
+    button { margin-top: 1.25rem; padding: .65rem 1rem; border: 0; border-radius: 6px; background: ${palette.accent}; color: white; cursor: pointer; }
+    button.secondary { margin-left: .5rem; background: ${palette.border}; color: ${palette.text}; }
+    .hint { font-size: .9rem; color: ${palette.muted}; }
+    .error { padding: .75rem; border-radius: 6px; background: ${palette.errorBackground}; color: ${palette.error}; }
   </style>
 </head>
 <body><main>${body}</main></body>
@@ -84,13 +111,14 @@ function setupForm(
   stored: ItemDConfiguration | null,
   initial: ItemDConfiguration,
   error?: string,
+  theme: BrowserTheme = "dark",
 ): string {
   const provider = PROVIDER_CATALOG.find(
     (candidate) => candidate.id === initial.provider && candidate.enabled,
   ) ?? PROVIDER_CATALOG[0];
 
   if (!provider.enabled) {
-    return page("Setup unavailable", "<h1>Setup unavailable</h1>");
+    return page("Setup unavailable", "<h1>Setup unavailable</h1>", theme);
   }
 
   const modelOptions = provider.models
@@ -133,6 +161,7 @@ function setupForm(
       <button type="submit">Save configuration</button>
       <button class="secondary" type="submit" formaction="/?token=${encodeURIComponent(token)}&cancel=1">Cancel</button>
     </form>`,
+    theme,
   );
 }
 
@@ -192,6 +221,7 @@ export async function runBrowserSetup(
   const token = randomBytes(24).toString("hex");
   const host = options.host ?? DEFAULT_HOST;
   const openBrowser = options.openBrowser ?? openBrowserUrl;
+  const theme: BrowserTheme = options.theme === "light" ? "light" : "dark";
 
   return new Promise((resolve) => {
     let settled = false;
@@ -212,24 +242,24 @@ export async function runBrowserSetup(
       );
 
       if (requestUrl.searchParams.get("token") !== token) {
-        sendHtml(response, 403, page("Forbidden", "<h1>Setup link expired.</h1>"));
+        sendHtml(response, 403, page("Forbidden", "<h1>Setup link expired.</h1>", theme));
         return;
       }
 
       if (requestUrl.searchParams.get("cancel") === "1") {
-        sendHtml(response, 200, page("Cancelled", "<h1>Setup cancelled</h1><p>You can close this tab and return to itemD.</p>"));
+        sendHtml(response, 200, page("Cancelled", "<h1>Setup cancelled</h1><p>You can close this tab and return to itemD.</p>", theme));
         closeServer();
         finish({ status: "cancelled" });
         return;
       }
 
       if (request.method === "GET") {
-        sendHtml(response, 200, setupForm(token, stored, initial));
+        sendHtml(response, 200, setupForm(token, stored, initial, undefined, theme));
         return;
       }
 
       if (request.method !== "POST") {
-        sendHtml(response, 405, page("Method not allowed", "<h1>Method not allowed</h1>"));
+        sendHtml(response, 405, page("Method not allowed", "<h1>Method not allowed</h1>", theme));
         return;
       }
 
@@ -244,15 +274,15 @@ export async function runBrowserSetup(
         const serperApiKey = fields.get("serperApiKey")?.trim() || stored?.webSearch?.serperApiKey || "";
 
         if (selectedModel === undefined || selectedEffort === undefined) {
-          sendHtml(response, 400, setupForm(token, stored, initial, "Choose a supported model and reasoning effort."));
+          sendHtml(response, 400, setupForm(token, stored, initial, "Choose a supported model and reasoning effort.", theme));
           return;
         }
         if (apiKey.length === 0) {
-          sendHtml(response, 400, setupForm(token, stored, initial, "DeepSeek API key is required."));
+          sendHtml(response, 400, setupForm(token, stored, initial, "DeepSeek API key is required.", theme));
           return;
         }
         if (webSearchEnabled && serperApiKey.length === 0) {
-          sendHtml(response, 400, setupForm(token, stored, initial, "A Serper API key is required when web search is enabled."));
+          sendHtml(response, 400, setupForm(token, stored, initial, "A Serper API key is required when web search is enabled.", theme));
           return;
         }
 
@@ -269,15 +299,15 @@ export async function runBrowserSetup(
         }, configOptions);
 
         if (!writeResult.ok) {
-          sendHtml(response, 500, setupForm(token, stored, initial, writeResult.error.message));
+          sendHtml(response, 500, setupForm(token, stored, initial, writeResult.error.message, theme));
           return;
         }
 
-        sendHtml(response, 200, page("Saved", "<h1>Configuration saved</h1><p>You can close this tab and return to itemD.</p>"));
+        sendHtml(response, 200, page("Saved", "<h1>Configuration saved</h1><p>You can close this tab and return to itemD.</p>", theme));
         closeServer();
         finish({ status: "saved" });
       } catch {
-        sendHtml(response, 400, setupForm(token, stored, initial, "The setup request could not be processed."));
+        sendHtml(response, 400, setupForm(token, stored, initial, "The setup request could not be processed.", theme));
       }
     });
 

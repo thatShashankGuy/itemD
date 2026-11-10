@@ -36,6 +36,7 @@ describe("browser configuration setup", () => {
 
     const setup = runBrowserSetup({
       config: { configPath, env: {} },
+      theme: "light",
       openBrowser: async (url) => {
         browserUrl = url;
         browserReady?.();
@@ -50,6 +51,8 @@ describe("browser configuration setup", () => {
     expect(page.status).toBe(200);
     expect(html).toContain("DeepSeek API key");
     expect(html).toContain("deepseek-v4-pro");
+    expect(html).toContain("color-scheme: light");
+    expect(html).toContain("background: #f6f8fa");
     expect(html).not.toContain("secret");
 
     const response = await fetch(browserUrl!, {

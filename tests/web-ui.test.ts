@@ -73,6 +73,7 @@ describe("web UI", () => {
     expect(html).toContain("https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js");
     expect(html).toContain("Configure");
     expect(html).toContain("aria-labelledby=\"config-title\"");
+    expect(html).toContain("--scrim: rgb(255 255 255 / .7)");
     expect(html).not.toContain("class=\"sidebar\"");
 
     const stateResponse = await fetch(withToken(browserUrl!, "/api/state"));
