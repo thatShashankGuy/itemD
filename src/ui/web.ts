@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
-import { basename } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import {
   runAgent,
   type AgentRunEvent,
@@ -17,6 +17,7 @@ import {
 } from "../config/configuration.ts";
 import { runBrowserSetup, openBrowserUrl } from "../config/browser-setup.ts";
 import type { ModelAdapter } from "../model/adapter.ts";
+import type { ModelMessage } from "../model/types.ts";
 import { PROVIDER_CATALOG } from "../model/catalog.ts";
 import { createModelAdapter } from "../model/factory.ts";
 import { getErrorMessage, isRecord } from "../shared/runtime.ts";
@@ -25,6 +26,8 @@ import { executePrefixedShellCommand, formatShellResult } from "./shell.ts";
 import { formatTuiCommandHelp } from "./commands.ts";
 import type { SearchProvider } from "../web/provider.ts";
 import { createSerperSearchProvider } from "../web/provider.ts";
+import { SessionService, type SessionContext } from "../session/service.ts";
+import { openSessionStore, type Session } from "../session/store.ts";
 
 const DEFAULT_HOST = "127.0.0.1";
 const MAX_BODY_BYTES = 128 * 1024;
@@ -67,6 +70,7 @@ type WebState = {
 export type WebOptions = {
   workspaceRoot: string;
   config?: ConfigurationOptions;
+  sessionDbPath?: string;
   host?: string;
   port?: number;
   openBrowser?: (url: string) => Promise<void>;
@@ -78,7 +82,19 @@ type WebCommandResult = {
   tone?: "text" | "success" | "warning" | "error";
   replays?: Array<{ traceId: string; modifiedAt: string }>;
   replay?: ReplayResult;
+  sessions?: Session[];
+  session?: Session;
+  messages?: ModelMessage[];
 };
+
+function getWebSessionDbPath(options: WebOptions): string | undefined {
+  if (options.sessionDbPath !== undefined) return options.sessionDbPath;
+  if (options.config?.env?.ITEMD_SESSION_DB_PATH !== undefined) return undefined;
+  if (options.config?.configPath !== undefined) {
+    return join(dirname(resolve(options.config.configPath)), "sessions.db");
+  }
+  return undefined;
+}
 
 function isMissingFileError(error: unknown): boolean {
   return isRecord(error) && error.code === "ENOENT";
@@ -223,6 +239,8 @@ function pageHtml(token: string): string {
     .composer .danger { grid-column: 2; grid-row: 2; align-self: start; }
     .command-list { padding: .5rem 1rem; color: var(--text); background: var(--panel); white-space: pre-wrap; }
     .command-list .selected { color: var(--accent); }
+    .picker-list { padding: .5rem 1rem; color: var(--text); background: var(--panel); white-space: pre-wrap; }
+    .picker-list .selected { color: var(--accent); }
     footer { min-height: 1.8rem; padding: .35rem .75rem; color: var(--muted); background: var(--panel); }
     .empty { color: var(--muted); padding: 2rem 0; text-align: center; }
     .modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 1rem; background: var(--scrim); }
@@ -255,6 +273,12 @@ function pageHtml(token: string): string {
     <div class="controls">
       <div class="activity" x-show="activity" x-text="activity" x-cloak></div>
       <div class="approval" x-show="approval" x-text="approval" x-cloak></div>
+      <div class="picker-list" x-show="pickerItems.length > 0" x-cloak>
+        <div class="label" x-text="pickerTitle"></div>
+        <template x-for="(item, index) in pickerItems" :key="item.id">
+          <div :class="{ selected: index === pickerIndex }" x-text="(index === pickerIndex ? '› ' : '  ') + item.label + '  ' + item.detail"></div>
+        </template>
+      </div>
       <div class="command-list" x-show="filteredCommands.length > 0" x-cloak>
         <template x-for="(command, index) in filteredCommands" :key="command.usage">
           <div :class="{ selected: index === selectedCommandIndex }" x-text="(index === selectedCommandIndex ? '› ' : '  ') + command.usage + '  ' + command.description"></div>
@@ -295,7 +319,7 @@ function pageHtml(token: string): string {
 <script>
 window.itemdApp = () => ({
   token: ${tokenJson}, sequence: 0, busy: false, status: 'READY', theme: 'dark',
-  input: '', inputPlaceholder: 'Describe a task, type / for commands, or ! for shell', argumentHint: '', selectedCommandIndex: 0, footer: 'Enter submits • Shift+Enter newline • / commands • ! shell', activity: '', approval: '',
+  input: '', inputPlaceholder: 'Describe a task, type / for commands, or ! for shell', argumentHint: '', selectedCommandIndex: 0, pickerItems: [], pickerTitle: '', pickerIndex: 0, footer: 'Enter submits • Shift+Enter newline • / commands • ! shell', activity: '', approval: '',
   commands: [
     { usage: '/help', description: 'Show commands and keyboard controls', requiresArgument: false },
     { usage: '/config', description: 'Show active configuration', requiresArgument: false },
@@ -306,6 +330,8 @@ window.itemdApp = () => ({
     { usage: '/setup', description: 'Open key setup', requiresArgument: false },
     { usage: '/replays', description: 'List recorded runs', requiresArgument: false },
     { usage: '/replay', description: 'Display a recorded run', requiresArgument: true, argumentHint: 'trace id: paste a recorded trace id' },
+    { usage: '/sessions', description: 'Browse recent sessions', requiresArgument: false },
+    { usage: '/resume', description: 'Resume a session', requiresArgument: true, argumentHint: 'session id: choose from /sessions' },
     { usage: '/clear', description: 'Clear the transcript', requiresArgument: false },
     { usage: '/new', description: 'Start a new session', requiresArgument: false },
     { usage: '/theme', description: 'Switch light or dark theme', requiresArgument: false },
@@ -326,7 +352,34 @@ window.itemdApp = () => ({
     this.input = command.usage + (command.requiresArgument ? ' ' : '');
     this.argumentHint = command.requiresArgument ? command.argumentHint : '';
   },
+  openPicker(title, items) {
+    this.pickerTitle = title;
+    this.pickerItems = items;
+    this.pickerIndex = 0;
+    this.argumentHint = '';
+    this.footer = '↑/↓ select • Enter choose • Esc close';
+  },
+  closePicker() {
+    this.pickerItems = [];
+    this.pickerTitle = '';
+    this.pickerIndex = 0;
+    this.footer = 'Enter submits • Shift+Enter newline • / commands • ! shell';
+  },
+  async selectPickerItem() {
+    const item = this.pickerItems[this.pickerIndex];
+    if (!item) return;
+    this.closePicker();
+    this.input = item.action + ' ' + item.id;
+    await this.sendLine();
+  },
   handleInputKeydown(event) {
+    if (this.pickerItems.length > 0) {
+      if (event.key === 'Escape') { event.preventDefault(); this.closePicker(); return; }
+      if (event.key === 'ArrowDown') { event.preventDefault(); this.pickerIndex = (this.pickerIndex + 1) % this.pickerItems.length; return; }
+      if (event.key === 'ArrowUp') { event.preventDefault(); this.pickerIndex = (this.pickerIndex - 1 + this.pickerItems.length) % this.pickerItems.length; return; }
+      if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void this.selectPickerItem(); return; }
+      return;
+    }
     if (event.key === 'Enter') {
       if (event.shiftKey) return;
       event.preventDefault();
@@ -391,7 +444,17 @@ window.itemdApp = () => ({
   async submitCommand(line) {
     const result = await this.api('/api/input', { method: 'POST', body: JSON.stringify({ line }) });
     if (result.message) this.addEntry('itemD', result.message, result.tone || 'text');
-    if (result.replays) result.replays.forEach((replay) => this.addEntry('replay', replay.traceId + '  ' + replay.modifiedAt));
+    if (result.replays) this.openPicker('Recorded runs', result.replays.map((replay) => ({ id: replay.traceId, action: '/replay', label: replay.traceId, detail: replay.modifiedAt })));
+    if (result.sessions) this.openPicker('Recent sessions', result.sessions.map((session) => ({ id: session.id, action: '/resume', label: session.id.slice(0, 8), detail: session.updatedAt })));
+    if (result.messages && result.session) {
+      this.entries = [];
+      this.addEntry('history', 'Restored session history');
+      result.messages.forEach((message) => {
+        const label = message.role === 'user' ? 'you' : message.role === 'tool' ? 'tool' : 'assistant';
+        const text = message.role === 'assistant' && message.content === null ? '(empty assistant message)' : message.content;
+        this.addEntry(label, text, label === 'you' ? 'user' : label === 'assistant' ? 'text' : 'reasoning');
+      });
+    }
     if (result.replay && result.replay.ok) this.addEntry('replay ' + result.replay.traceId, JSON.stringify(result.replay.events, null, 2));
   },
   async sendLine() {
@@ -406,10 +469,17 @@ window.itemdApp = () => ({
       this.prepareCommand(command);
       return;
     }
-    if (line === '/clear' || line === '/new') {
+    if (line === '/clear') {
       this.entries = [];
-      this.addEntry('', line === '/new' ? 'New session started. Active configuration retained.' : 'Transcript cleared.');
+      this.addEntry('', 'Transcript cleared.');
       this.input = ''; this.argumentHint = '';
+      return;
+    }
+    if (line === '/new') {
+      this.entries = [];
+      this.input = ''; this.argumentHint = '';
+      try { await this.submitCommand(line); }
+      catch (error) { this.addEntry('error', error.message, 'error'); }
       return;
     }
     if (line === '/theme' || line === '/theme light' || line === '/theme dark') {
@@ -425,6 +495,7 @@ window.itemdApp = () => ({
     catch (error) { this.addEntry('error', error.message, 'error'); }
   },
   handleEscape() {
+    if (this.pickerItems.length > 0) { this.closePicker(); return; }
     if (this.busy) { void this.stopTask(); return; }
     this.configOpen = false;
   },
@@ -494,6 +565,13 @@ export async function runWeb(options: WebOptions): Promise<void> {
   }
 
   let active = activeResult.active;
+  const sessionDbPath = getWebSessionDbPath(options);
+  const sessionStore = await openSessionStore({
+    ...(sessionDbPath === undefined ? {} : { dbPath: sessionDbPath }),
+    ...(options.config?.env === undefined ? {} : { env: options.config.env }),
+  });
+  const sessionService = new SessionService(sessionStore);
+  let sessionContext: SessionContext = sessionService.createSession(options.workspaceRoot);
   const logo = await loadLogo();
   const token = randomBytes(24).toString("hex");
   const host = options.host ?? DEFAULT_HOST;
@@ -595,16 +673,36 @@ export async function runWeb(options: WebOptions): Promise<void> {
       const replay = await replayTrace(options.workspaceRoot, words[1]);
       return { replay, message: replay.ok ? `Replay ${replay.traceId}` : replay.error.message, tone: replay.ok ? "text" : "error" };
     }
-    if (command === "/clear" || command === "/new" || command === "/theme") return { message: `${command.slice(1)} is handled by the browser interface.` };
+    if (command === "/sessions") {
+      const sessions = sessionService.listSessions(10).filter((session) => session.workspaceRoot === options.workspaceRoot);
+      return { sessions, message: sessions.length === 0 ? "No saved sessions." : "Select a session:" };
+    }
+    if (command === "/resume") {
+      if (words.length !== 2 || words[1] === undefined) return { message: "Usage: /resume <session-id>", tone: "warning" };
+      const resumed = sessionService.resumeSession(words[1], options.workspaceRoot);
+      if (!resumed.ok) return { message: resumed.error.message, tone: "error" };
+      sessionContext = resumed.context;
+      return { session: resumed.context.session, messages: resumed.context.messages, message: "Session resumed." };
+    }
+    if (command === "/new") {
+      sessionContext = sessionService.createSession(options.workspaceRoot);
+      return { message: "New session started. Active configuration retained.", tone: "success" };
+    }
+    if (command === "/clear" || command === "/theme") return { message: `${command.slice(1)} is handled by the browser interface.` };
     return { message: `Unknown command: ${command ?? line}. Type /help for available commands.`, tone: "warning" };
   };
   const startTask = (task: string): void => {
     if (busy) { emitLog("itemD is already running a task.", "busy  ", "warning"); return; }
+    sessionContext = sessionService.appendMessage(sessionContext.session.id, { role: "user", content: task });
     busy = true; activeController = new AbortController(); emit({ type: "status", status: "running" }); emitState();
     const controller = activeController;
     void runAgent(task, active.adapter, options.workspaceRoot, {
       signal: controller.signal,
       tools: active.webSearchProvider === undefined ? {} : { webSearchProvider: active.webSearchProvider },
+      initialMessages: sessionContext.messages,
+      onMessage: (message: ModelMessage): void => {
+        sessionContext = sessionService.appendMessage(sessionContext.session.id, message);
+      },
       onEvent: async (event: AgentRunEvent) => emit({ type: "reasoning", step: event.step, text: event.text }),
       onRuntimeEvent: (event: AgentRuntimeEvent): void => {
         if (event.type === "activity") {
@@ -653,6 +751,7 @@ export async function runWeb(options: WebOptions): Promise<void> {
       if (settled) return;
       settled = true;
       activeController?.abort();
+      sessionService.close();
       if (server.listening) { server.close(); server.closeAllConnections(); }
       resolve();
     };
