@@ -47,10 +47,27 @@ type SearchMatch = {
 };
 
 export type ToolExecutionOptions = {
+  onActivity?: (activity: ToolExecutionActivity) => void | Promise<void>;
   shellApproval?: ShellApprovalController;
   shellMode?: ShellExecutionMode;
   webSearchProvider?: SearchProvider;
 };
+
+export type ToolExecutionActivity = {
+  phase: "waiting_for_approval" | "executing_tool";
+  message: string;
+};
+
+async function emitToolActivity(
+  options: ToolExecutionOptions,
+  activity: ToolExecutionActivity,
+): Promise<void> {
+  try {
+    await options.onActivity?.(activity);
+  } catch {
+    // Activity reporting must not change the tool's execution result.
+  }
+}
 
 async function executeReadFile(
   call: Extract<ToolCall, { type: "read_file" }>,
@@ -473,6 +490,11 @@ async function executeShell(
   }
 
   if ((options.shellMode ?? "ask") === "ask") {
+    await emitToolActivity(options, {
+      phase: "waiting_for_approval",
+      message: `Waiting for approval to run ${call.executable}`,
+    });
+
     if (options.shellApproval === undefined) {
       return {
         ok: false,
@@ -510,6 +532,11 @@ async function executeShell(
       };
     }
   }
+
+  await emitToolActivity(options, {
+    phase: "executing_tool",
+    message: `Running ${call.executable}`,
+  });
 
   const result = await executeCommand(
     call.executable,

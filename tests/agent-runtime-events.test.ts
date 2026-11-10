@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { runAgent } from "../src/agent/runner.ts";
 import type { AgentRuntimeEvent } from "../src/agent/events.ts";
 import type { ModelAdapter } from "../src/model/adapter.ts";
+import { ShellApprovalController } from "../src/permissions/shell-approval.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -190,5 +191,81 @@ describe("agent runtime event integration", () => {
       "run_started",
       "run_failed",
     ]);
+  });
+
+  test("forwards shell approval and execution activity", async () => {
+    const workspace = await createWorkspace();
+    const events: AgentRuntimeEvent[] = [];
+    let streamCall = 0;
+    const adapter: ModelAdapter = {
+      metadata: metadata(),
+      async call() {
+        throw new Error("call fallback should not be used");
+      },
+      async *stream() {
+        streamCall += 1;
+
+        if (streamCall === 1) {
+          yield {
+            type: "completed",
+            result: {
+              ok: true,
+              message: {
+                role: "assistant",
+                content: null,
+                toolCalls: [{
+                  id: "call-pwd",
+                  name: "shell",
+                  arguments: '{"type":"shell","executable":"pwd","args":[]}',
+                }],
+              },
+              action: {
+                type: "tool_calls",
+                calls: [{
+                  id: "call-pwd",
+                  name: "shell",
+                  args: {},
+                  call: { type: "shell", executable: "pwd", args: [] },
+                }],
+              },
+            },
+          };
+          return;
+        }
+
+        yield {
+          type: "completed",
+          result: {
+            ok: true,
+            message: { role: "assistant", content: "DONE: approved" },
+            action: { type: "final", text: "DONE: approved" },
+          },
+        };
+      },
+    };
+
+    const result = await runAgent("run pwd", adapter, workspace, {
+      tools: {
+        shellMode: "ask",
+        shellApproval: new ShellApprovalController(() => "once"),
+      },
+      onRuntimeEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    expect(result).toMatchObject({ ok: true, answer: "approved" });
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "activity",
+          phase: "waiting_for_approval",
+        }),
+        expect.objectContaining({
+          type: "activity",
+          phase: "executing_tool",
+        }),
+      ]),
+    );
   });
 });

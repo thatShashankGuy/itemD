@@ -119,6 +119,32 @@ describe("model shell execution policy", () => {
       ),
     ).resolves.toMatchObject({ ok: true, output: { cwd: workspace } });
   });
+
+  test("reports approval and execution activity", async () => {
+    const workspace = await createWorkspace();
+    const activity: string[] = [];
+    const approval = new ShellApprovalController(() => "once");
+
+    await expect(
+      executeTool(
+        { type: "shell", executable: "pwd", args: [] },
+        workspace,
+        undefined,
+        {
+          shellMode: "ask",
+          shellApproval: approval,
+          onActivity: (event) => {
+            activity.push(event.phase);
+          },
+        },
+      ),
+    ).resolves.toMatchObject({ ok: true });
+
+    expect(activity).toEqual([
+      "waiting_for_approval",
+      "executing_tool",
+    ]);
+  });
 });
 
 describe("pty command execution", () => {

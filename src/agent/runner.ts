@@ -327,11 +327,25 @@ export async function runAgent(
         toolCallId: action.id,
         toolName: action.name,
       });
+      const executionOptions: ToolExecutionOptions = {
+        ...toolOptions,
+        onActivity: async (activity) => {
+          await emitRuntimeEvent(onRuntimeEvent, {
+            runId: trace.id,
+            timestamp: new Date().toISOString(),
+            type: "activity",
+            phase: activity.phase,
+            message: activity.message,
+            step,
+          });
+          await toolOptions?.onActivity?.(activity);
+        },
+      };
       const toolResult = await executeTool(
         action.call,
         workspaceRoot,
         signal,
-        toolOptions,
+        executionOptions,
       );
 
       await writeTraceEvent(trace, {

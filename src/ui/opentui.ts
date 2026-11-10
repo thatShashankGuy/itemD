@@ -793,6 +793,14 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       return;
     }
 
+    if (event.type === "activity") {
+      if (event.phase === "executing_tool") {
+        footer.content = ` ${event.message}`;
+        footer.fg = COLORS.muted;
+      }
+      return;
+    }
+
     if (event.type === "tool_started") {
       appendLog(
         "tool  ",
