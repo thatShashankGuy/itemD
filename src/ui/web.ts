@@ -398,6 +398,10 @@ window.itemdApp = () => ({
     const line = this.input.trim();
     if (!line || this.busy) return;
     const command = this.commands.find((candidate) => candidate.usage === line);
+    if (line.startsWith('/') && command === undefined && this.filteredCommands.length > 0) {
+      this.prepareCommand(this.filteredCommands[this.selectedCommandIndex]);
+      return;
+    }
     if (command?.requiresArgument) {
       this.prepareCommand(command);
       return;
