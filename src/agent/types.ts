@@ -9,6 +9,10 @@ export type AgentError =
   | {
       code: "RUN_CANCELLED";
       message: string;
+    }
+  | {
+      code: "INTERACTION_POLICY_VIOLATION";
+      message: string;
     };
 
 export type AgentRunResult =

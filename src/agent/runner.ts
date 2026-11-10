@@ -5,8 +5,10 @@ import type {
 import type { ModelAdapter } from "../model/adapter.ts";
 import type {
   ModelCallResult,
+  ModelCallOptions,
   ModelMessage,
 } from "../model/types.ts";
+import { selectInteractionMode } from "./interaction-policy.ts";
 import {
   createContinueMessage,
   createModelHistory,
@@ -147,6 +149,7 @@ async function callModel(
   adapter: ModelAdapter,
   messages: readonly ModelMessage[],
   signal: AbortSignal | undefined,
+  modelOptions: ModelCallOptions,
   step: number,
   runId: string,
   onRuntimeEvent: AgentRuntimeEventHandler | undefined,
@@ -154,7 +157,7 @@ async function callModel(
 ): Promise<{ result: ModelCallResult; streamedReasoning: boolean }> {
   if (adapter.stream === undefined) {
     return {
-      result: await adapter.call(messages, signal),
+      result: await adapter.call(messages, signal, modelOptions),
       streamedReasoning: false,
     };
   }
@@ -163,7 +166,7 @@ async function callModel(
   let streamedReasoning = false;
 
   try {
-    for await (const event of adapter.stream(messages, signal)) {
+    for await (const event of adapter.stream(messages, signal, modelOptions)) {
       if (event.type === "text_delta") {
         await emitRuntimeEvent(onRuntimeEvent, {
           runId,
@@ -232,6 +235,7 @@ export async function runAgent(
     typeof options === "number" ? undefined : options.onMessage;
   const onRuntimeEvent =
     typeof options === "number" ? undefined : options.onRuntimeEvent;
+  const interactionMode = selectInteractionMode(task);
   const messages: ModelMessage[] =
     typeof options === "number" || options.initialMessages === undefined
       ? createModelHistory(task)
@@ -243,6 +247,7 @@ export async function runAgent(
     timestamp: new Date().toISOString(),
     task,
     ...adapter.metadata,
+    mode: interactionMode,
     maxSteps,
   });
 
@@ -270,6 +275,7 @@ export async function runAgent(
       adapter,
       messages,
       signal,
+      { interactionMode },
       step,
       trace.id,
       onRuntimeEvent,
@@ -320,7 +326,13 @@ export async function runAgent(
     }
 
     if (modelResult.action.type === "final") {
-      const answer = getDoneAnswer(modelResult.action.text);
+      const directAnswer = modelResult.action.text.trim();
+      const answer =
+        interactionMode === "direct"
+          ? directAnswer.length > 0
+            ? directAnswer
+            : undefined
+          : getDoneAnswer(modelResult.action.text);
 
       if (answer !== undefined) {
         return finishAgentRun(trace, {
@@ -339,6 +351,20 @@ export async function runAgent(
         await onMessage(continueMessage);
       }
       continue;
+    }
+
+    if (interactionMode === "direct") {
+      return finishAgentRun(trace, {
+        ok: false,
+        status: "failed",
+        steps: step,
+        error: {
+          code: "INTERACTION_POLICY_VIOLATION",
+          message: "Direct informational mode does not permit tool calls",
+        },
+        traceId: trace.id,
+        tracePath: trace.relativePath,
+      }, onRuntimeEvent);
     }
 
     for (const action of modelResult.action.calls) {

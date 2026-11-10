@@ -229,6 +229,42 @@ describe("DeepSeek adapter requests", () => {
     ]);
   });
 
+  test("omits tools for a direct informational request", async () => {
+    let requestBody:
+      | {
+          messages?: Array<{ role?: string; content?: string }>;
+          tools?: unknown[];
+        }
+      | undefined;
+    const result = createDeepSeek(
+      "high",
+      responseFetch(finalResponse("A closure captures scope."), (init) => {
+        requestBody = JSON.parse(String(init?.body)) as {
+          messages?: Array<{ role?: string; content?: string }>;
+          tools?: unknown[];
+        };
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+
+    if (!result.ok) {
+      return;
+    }
+
+    await result.adapter.call(
+      [{ role: "user", content: "What is a closure?" }],
+      undefined,
+      { interactionMode: "direct" },
+    );
+
+    expect(requestBody?.tools).toBeUndefined();
+    expect(requestBody?.messages?.[0]).toMatchObject({ role: "system" });
+    expect(requestBody?.messages?.[0]?.content).toContain(
+      "general informational questions",
+    );
+  });
+
   test("returns a structured error for a malformed provider response", async () => {
     const result = createDeepSeek(
       "high",
