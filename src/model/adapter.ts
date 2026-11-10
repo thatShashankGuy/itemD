@@ -3,6 +3,7 @@ import type {
   ModelCallResult,
   ModelMessage,
   ModelMetadata,
+  ModelStreamEvent,
 } from "./types.ts";
 
 export interface ModelAdapter {
@@ -11,6 +12,10 @@ export interface ModelAdapter {
     history: readonly ModelMessage[],
     signal?: AbortSignal,
   ): Promise<ModelCallResult>;
+  stream?(
+    history: readonly ModelMessage[],
+    signal?: AbortSignal,
+  ): AsyncIterable<ModelStreamEvent>;
 }
 
 export type ModelAdapterConfiguration = {

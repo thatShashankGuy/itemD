@@ -4,6 +4,7 @@ import type { ReasoningEffort } from "../contracts.ts";
 import type {
   ModelCallResult,
   ModelMessage,
+  ModelStreamEvent,
   ModelToolRequest,
   ToolAction,
 } from "../types.ts";
@@ -435,6 +436,239 @@ function redactSecret(text: string, secret: string): string {
   return secret.length === 0 ? text : text.split(secret).join("[REDACTED]");
 }
 
+function requestBody(
+  history: readonly ModelMessage[],
+  model: string,
+  effort: ReasoningEffort,
+  stream: boolean,
+): Record<string, unknown> {
+  return {
+    model,
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      ...history.map(toDeepSeekMessage),
+    ],
+    tools: DEEPSEEK_TOOLS,
+    thinking: {
+      type: effort === "none" ? "disabled" : "enabled",
+    },
+    ...(effort === "none" ? {} : { reasoning_effort: effort }),
+    ...(stream ? { stream: true } : {}),
+  };
+}
+
+type StreamToolCall = {
+  id: string;
+  name: string;
+  arguments: string;
+};
+
+type StreamDelta = {
+  content?: string;
+  reasoning?: string;
+  toolCalls?: Array<{
+    index: number;
+    id?: string;
+    name?: string;
+    arguments?: string;
+  }>;
+};
+
+function parseStreamDelta(value: unknown): StreamDelta {
+  if (!isRecord(value) || !Array.isArray(value.choices)) {
+    return {};
+  }
+
+  const choice = value.choices[0];
+
+  if (!isRecord(choice) || !isRecord(choice.delta)) {
+    return {};
+  }
+
+  const delta = choice.delta;
+  const parsed: StreamDelta = {};
+
+  if (typeof delta.content === "string") {
+    parsed.content = delta.content;
+  }
+
+  if (typeof delta.reasoning_content === "string") {
+    parsed.reasoning = delta.reasoning_content;
+  }
+
+  if (Array.isArray(delta.tool_calls)) {
+    parsed.toolCalls = delta.tool_calls.flatMap((call, fallbackIndex) => {
+      if (!isRecord(call)) {
+        return [];
+      }
+
+      const index = typeof call.index === "number" ? call.index : fallbackIndex;
+      const functionValue = isRecord(call.function) ? call.function : {};
+
+      return [{
+        index,
+        ...(typeof call.id === "string" ? { id: call.id } : {}),
+        ...(typeof functionValue.name === "string"
+          ? { name: functionValue.name }
+          : {}),
+        ...(typeof functionValue.arguments === "string"
+          ? { arguments: functionValue.arguments }
+          : {}),
+      }];
+    });
+  }
+
+  return parsed;
+}
+
+function streamFailure(
+  message: string,
+  status?: number,
+  details?: unknown,
+): ModelStreamEvent {
+  return {
+    type: "failed",
+    error: {
+      code: status === undefined
+        ? "INVALID_MODEL_RESPONSE"
+        : "MODEL_REQUEST_FAILED",
+      message,
+      ...(status === undefined ? {} : { status }),
+      ...(details === undefined ? {} : { details }),
+    },
+  };
+}
+
+async function* parseDeepSeekStream(
+  response: Response,
+  apiKey: string,
+): AsyncGenerator<ModelStreamEvent> {
+  if (response.body === null) {
+    yield streamFailure("DeepSeek streaming response had no body");
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let content = "";
+  let reasoning = "";
+  let sawReasoning = false;
+  let streamError: ModelStreamEvent | undefined;
+  const toolCalls = new Map<number, StreamToolCall>();
+
+  const consumeLine = function* (line: string): Generator<ModelStreamEvent> {
+    if (!line.startsWith("data:")) {
+      return;
+    }
+
+    const data = line.slice("data:".length).trim();
+
+    if (data.length === 0 || data === "[DONE]") {
+      return;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(data) as unknown;
+    } catch (error: unknown) {
+      streamError = streamFailure(
+        `DeepSeek returned invalid stream JSON: ${redactSecret(
+          getErrorMessage(error),
+          apiKey,
+        )}`,
+      );
+      return;
+    }
+
+    const delta = parseStreamDelta(parsed);
+
+    if (delta.content !== undefined) {
+      content += delta.content;
+      yield { type: "text_delta", text: delta.content };
+    }
+
+    if (delta.reasoning !== undefined) {
+      reasoning += delta.reasoning;
+      sawReasoning = true;
+      yield { type: "reasoning_delta", text: delta.reasoning };
+    }
+
+    for (const part of delta.toolCalls ?? []) {
+      const existing = toolCalls.get(part.index) ?? {
+        id: "",
+        name: "",
+        arguments: "",
+      };
+      existing.id += part.id ?? "";
+      existing.name += part.name ?? "";
+      existing.arguments += part.arguments ?? "";
+      toolCalls.set(part.index, existing);
+    }
+  };
+
+  try {
+    while (true) {
+      const chunk = await reader.read();
+
+      if (chunk.done) {
+        break;
+      }
+
+      buffer += decoder.decode(chunk.value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        yield* consumeLine(line);
+      }
+    }
+
+    buffer += decoder.decode();
+    if (buffer.length > 0) {
+      yield* consumeLine(buffer);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (streamError !== undefined) {
+    yield streamError;
+    return;
+  }
+
+  const orderedToolCalls = [...toolCalls.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([, call]) => ({
+      id: call.id,
+      type: "function" as const,
+      function: {
+        name: call.name,
+        arguments: call.arguments,
+      },
+    }));
+  const result = parseModelResponse({
+    choices: [
+      {
+        message: {
+          role: "assistant",
+          content: content.length === 0 ? null : content,
+          ...(sawReasoning ? { reasoning_content: reasoning } : {}),
+          ...(orderedToolCalls.length === 0
+            ? {}
+            : { tool_calls: orderedToolCalls }),
+        },
+      },
+    ],
+  });
+
+  if (result.ok) {
+    yield { type: "completed", result };
+  } else {
+    yield { type: "failed", error: result.error };
+  }
+}
+
 export function createDeepSeekAdapter(
   options: DeepSeekAdapterOptions,
 ): ModelAdapter {
@@ -466,20 +700,9 @@ export function createDeepSeekAdapter(
             "Content-Type": "application/json",
             Authorization: `Bearer ${options.apiKey}`,
           },
-          body: JSON.stringify({
-            model: options.model,
-            messages: [
-              { role: "system", content: SYSTEM_PROMPT },
-              ...history.map(toDeepSeekMessage),
-            ],
-            tools: DEEPSEEK_TOOLS,
-            thinking: {
-              type: options.effort === "none" ? "disabled" : "enabled",
-            },
-            ...(options.effort === "none"
-              ? {}
-              : { reasoning_effort: options.effort }),
-          }),
+          body: JSON.stringify(
+            requestBody(history, options.model, options.effort, false),
+          ),
           signal: requestSignal,
         });
 
@@ -535,6 +758,59 @@ export function createDeepSeekAdapter(
             message: redactSecret(message, options.apiKey),
           },
         };
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+    async *stream(
+      history: readonly ModelMessage[],
+      signal?: AbortSignal,
+    ): AsyncGenerator<ModelStreamEvent> {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => {
+        controller.abort();
+      }, MODEL_TIMEOUT_MS);
+      const requestSignal =
+        signal === undefined
+          ? controller.signal
+          : AbortSignal.any([controller.signal, signal]);
+
+      try {
+        const response = await fetchImplementation(ENDPOINT, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "text/event-stream",
+            Authorization: `Bearer ${options.apiKey}`,
+          },
+          body: JSON.stringify(
+            requestBody(history, options.model, options.effort, true),
+          ),
+          signal: requestSignal,
+        });
+
+        if (!response.ok) {
+          const errorBody = await response.text();
+          yield streamFailure(
+            `DeepSeek request failed with HTTP ${response.status}`,
+            response.status,
+            redactSecret(
+              errorBody.slice(0, MAX_MODEL_ERROR_CHARS),
+              options.apiKey,
+            ),
+          );
+          return;
+        }
+
+        yield* parseDeepSeekStream(response, options.apiKey);
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error && error.name === "AbortError"
+            ? signal?.aborted
+              ? "DeepSeek request cancelled"
+              : `DeepSeek request exceeded ${MODEL_TIMEOUT_MS}ms`
+            : getErrorMessage(error);
+        yield streamFailure(redactSecret(message, options.apiKey));
       } finally {
         clearTimeout(timeout);
       }
