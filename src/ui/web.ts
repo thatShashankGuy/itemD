@@ -220,6 +220,7 @@ function pageHtml(token: string): string {
     .composer textarea { flex: 1; resize: vertical; min-height: 2.2rem; max-height: 12rem; }
     .composer textarea:focus, select:focus { box-shadow: inset 0 -2px var(--accent); }
     .command-list { padding: .5rem 1rem; color: var(--text); background: var(--panel); white-space: pre-wrap; }
+    .command-list .selected { color: var(--accent); }
     footer { min-height: 1.8rem; padding: .35rem .75rem; color: var(--muted); background: var(--panel); }
     .empty { color: var(--muted); padding: 2rem 0; text-align: center; }
     .modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 1rem; background: var(--scrim); }
@@ -253,12 +254,12 @@ function pageHtml(token: string): string {
       <div class="activity" x-show="activity" x-text="activity" x-cloak></div>
       <div class="approval" x-show="approval" x-text="approval" x-cloak></div>
       <div class="command-list" x-show="filteredCommands.length > 0" x-cloak>
-        <template x-for="command in filteredCommands" :key="command.usage">
-          <div x-text="command.usage + '  ' + command.description"></div>
+        <template x-for="(command, index) in filteredCommands" :key="command.usage">
+          <div :class="{ selected: index === selectedCommandIndex }" x-text="(index === selectedCommandIndex ? '› ' : '  ') + command.usage + '  ' + command.description"></div>
         </template>
       </div>
       <form class="composer" @submit.prevent="sendLine()">
-        <textarea rows="1" autocomplete="off" placeholder="Describe a task, type / for commands, or ! for shell" x-model="input" x-ref="input" @keydown.enter.exact.prevent="sendLine()" @keydown.shift.enter.stop></textarea>
+        <textarea rows="1" autocomplete="off" placeholder="Describe a task, type / for commands, or ! for shell" x-model="input" x-ref="input" @input="selectedCommandIndex = 0" @keydown="handleInputKeydown($event)"></textarea>
         <button class="danger" type="button" @click="stopTask()" x-show="busy">Stop</button>
       </form>
     </div>
@@ -291,7 +292,7 @@ function pageHtml(token: string): string {
 <script>
 window.itemdApp = () => ({
   token: ${tokenJson}, sequence: 0, busy: false, status: 'READY', theme: 'dark',
-  input: '', footer: 'Enter submits • Shift+Enter newline • / commands • ! shell', activity: '', approval: '',
+  input: '', selectedCommandIndex: 0, footer: 'Enter submits • Shift+Enter newline • / commands • ! shell', activity: '', approval: '',
   commands: [
     { usage: '/help', description: 'Show commands and keyboard controls' },
     { usage: '/config', description: 'Show active configuration' },
@@ -313,6 +314,29 @@ window.itemdApp = () => ({
     const prefix = this.input.trimStart();
     if (!prefix.startsWith('/') || /\s/.test(prefix)) return [];
     return this.commands.filter((command) => command.usage.startsWith(prefix.toLowerCase()));
+  },
+  handleInputKeydown(event) {
+    if (event.key === 'Enter') {
+      if (event.shiftKey) return;
+      event.preventDefault();
+      void this.sendLine();
+      return;
+    }
+    if (event.key === 'ArrowDown' && this.filteredCommands.length > 0) {
+      event.preventDefault();
+      this.selectedCommandIndex = (this.selectedCommandIndex + 1) % this.filteredCommands.length;
+      return;
+    }
+    if (event.key === 'ArrowUp' && this.filteredCommands.length > 0) {
+      event.preventDefault();
+      this.selectedCommandIndex = (this.selectedCommandIndex - 1 + this.filteredCommands.length) % this.filteredCommands.length;
+      return;
+    }
+    if (event.key === 'Tab' && this.filteredCommands.length > 0) {
+      event.preventDefault();
+      const command = this.filteredCommands[this.selectedCommandIndex];
+      this.input = command.usage === '/replay' ? command.usage + ' ' : command.usage;
+    }
   },
   async api(path, options = {}) {
     const separator = path.includes('?') ? '&' : '?';
