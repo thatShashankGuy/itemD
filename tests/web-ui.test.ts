@@ -79,6 +79,10 @@ describe("web UI", () => {
     expect(html).toContain("if (event.shiftKey) return;");
     expect(html).toContain("event.key === 'Tab'");
     expect(html).toContain("selectedCommandIndex");
+    expect(html).toContain("min-height: 20vh");
+    expect(html).toContain("argumentHint");
+    expect(html).toContain("requiresArgument: true");
+    expect(html).toContain("prepareCommand(command)");
     expect(html).toContain("@keydown.escape.window=\"handleEscape()\"");
     expect(html).toContain("#logo { width: 64px; height: 56px");
     expect(html).toContain("class=\"controls\"");

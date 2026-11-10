@@ -215,10 +215,12 @@ function pageHtml(token: string): string {
     .entry.reasoning { color: var(--muted); }
     .activity { min-height: 1.8rem; padding: .35rem 1rem; color: var(--muted); background: var(--panel); }
     .approval { padding: .75rem 1rem; color: var(--warning); background: var(--panel); white-space: pre-wrap; }
-    .composer { display: flex; gap: .5rem; padding: .6rem .75rem; background: var(--panel); }
+    .composer { min-height: 20vh; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr); gap: .5rem; padding: .6rem .75rem; background: var(--panel); }
     .composer textarea, select { width: 100%; min-width: 0; border: 0; border-radius: 4px; padding: .55rem; color: var(--text); background: var(--bg); outline: 0; }
-    .composer textarea { flex: 1; resize: vertical; min-height: 2.2rem; max-height: 12rem; }
+    .composer textarea { grid-column: 1; grid-row: 2; height: 100%; min-height: 0; resize: none; }
     .composer textarea:focus, select:focus { box-shadow: inset 0 -2px var(--accent); }
+    .argument-helper { grid-column: 1 / -1; grid-row: 1; color: var(--muted); }
+    .composer .danger { grid-column: 2; grid-row: 2; align-self: start; }
     .command-list { padding: .5rem 1rem; color: var(--text); background: var(--panel); white-space: pre-wrap; }
     .command-list .selected { color: var(--accent); }
     footer { min-height: 1.8rem; padding: .35rem .75rem; color: var(--muted); background: var(--panel); }
@@ -229,7 +231,7 @@ function pageHtml(token: string): string {
     .modal label { display: block; margin: .8rem 0 .35rem; color: var(--muted); }
     .modal .value { color: var(--text); }
     .modal-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1.2rem; }
-    @media (max-width: 600px) { .brand { display: none; } .composer { flex-wrap: wrap; } .composer textarea { flex-basis: 100%; } }
+    @media (max-width: 600px) { .brand { display: none; } .composer { grid-template-columns: 1fr; } .composer textarea { grid-column: 1; } .composer .danger { grid-column: 1; grid-row: 3; justify-self: start; } }
   </style>
 </head>
 <body x-data="itemdApp()" :class="theme === 'light' ? 'light' : ''" @keydown.escape.window="handleEscape()">
@@ -259,7 +261,8 @@ function pageHtml(token: string): string {
         </template>
       </div>
       <form class="composer" @submit.prevent="sendLine()">
-        <textarea rows="1" autocomplete="off" placeholder="Describe a task, type / for commands, or ! for shell" x-model="input" x-ref="input" @input="selectedCommandIndex = 0" @keydown="handleInputKeydown($event)"></textarea>
+        <div class="argument-helper" x-show="argumentHint" x-text="argumentHint" x-cloak></div>
+        <textarea rows="1" autocomplete="off" :placeholder="inputPlaceholder" x-model="input" x-ref="input" @input="onInput()" @keydown="handleInputKeydown($event)"></textarea>
         <button class="danger" type="button" @click="stopTask()" x-show="busy">Stop</button>
       </form>
     </div>
@@ -292,21 +295,21 @@ function pageHtml(token: string): string {
 <script>
 window.itemdApp = () => ({
   token: ${tokenJson}, sequence: 0, busy: false, status: 'READY', theme: 'dark',
-  input: '', selectedCommandIndex: 0, footer: 'Enter submits • Shift+Enter newline • / commands • ! shell', activity: '', approval: '',
+  input: '', inputPlaceholder: 'Describe a task, type / for commands, or ! for shell', argumentHint: '', selectedCommandIndex: 0, footer: 'Enter submits • Shift+Enter newline • / commands • ! shell', activity: '', approval: '',
   commands: [
-    { usage: '/help', description: 'Show commands and keyboard controls' },
-    { usage: '/config', description: 'Show active configuration' },
-    { usage: '/model', description: 'Select or change the active model' },
-    { usage: '/effort', description: 'Select reasoning effort' },
-    { usage: '/reasoning', description: 'Toggle recorded reasoning' },
-    { usage: '/reload', description: 'Reload configuration' },
-    { usage: '/setup', description: 'Open key setup' },
-    { usage: '/replays', description: 'List recorded runs' },
-    { usage: '/replay', description: 'Display a recorded run' },
-    { usage: '/clear', description: 'Clear the transcript' },
-    { usage: '/new', description: 'Start a new session' },
-    { usage: '/theme', description: 'Switch light or dark theme' },
-    { usage: '/exit', description: 'Exit itemD' },
+    { usage: '/help', description: 'Show commands and keyboard controls', requiresArgument: false },
+    { usage: '/config', description: 'Show active configuration', requiresArgument: false },
+    { usage: '/model', description: 'Select or change the active model', requiresArgument: true, argumentHint: 'model: deepseek-flash | deepseek-v4-pro' },
+    { usage: '/effort', description: 'Select reasoning effort', requiresArgument: true, argumentHint: 'effort: none | low | high | max' },
+    { usage: '/reasoning', description: 'Toggle recorded reasoning', requiresArgument: false },
+    { usage: '/reload', description: 'Reload configuration', requiresArgument: false },
+    { usage: '/setup', description: 'Open key setup', requiresArgument: false },
+    { usage: '/replays', description: 'List recorded runs', requiresArgument: false },
+    { usage: '/replay', description: 'Display a recorded run', requiresArgument: true, argumentHint: 'trace id: paste a recorded trace id' },
+    { usage: '/clear', description: 'Clear the transcript', requiresArgument: false },
+    { usage: '/new', description: 'Start a new session', requiresArgument: false },
+    { usage: '/theme', description: 'Switch light or dark theme', requiresArgument: false },
+    { usage: '/exit', description: 'Exit itemD', requiresArgument: false },
   ],
   entries: [], showingReasoning: false, configOpen: false, models: [], efforts: [], model: '', effort: '',
   state: { provider: '', model: '', effort: '', webSearch: false, workspace: '', busy: false }, timer: null,
@@ -314,6 +317,14 @@ window.itemdApp = () => ({
     const prefix = this.input.trimStart();
     if (!prefix.startsWith('/') || /\s/.test(prefix)) return [];
     return this.commands.filter((command) => command.usage.startsWith(prefix.toLowerCase()));
+  },
+  onInput() {
+    this.selectedCommandIndex = 0;
+    if (!this.input.trim().startsWith('/')) this.argumentHint = '';
+  },
+  prepareCommand(command) {
+    this.input = command.usage + (command.requiresArgument ? ' ' : '');
+    this.argumentHint = command.requiresArgument ? command.argumentHint : '';
   },
   handleInputKeydown(event) {
     if (event.key === 'Enter') {
@@ -335,7 +346,7 @@ window.itemdApp = () => ({
     if (event.key === 'Tab' && this.filteredCommands.length > 0) {
       event.preventDefault();
       const command = this.filteredCommands[this.selectedCommandIndex];
-      this.input = command.usage === '/replay' ? command.usage + ' ' : command.usage;
+      this.prepareCommand(command);
     }
   },
   async api(path, options = {}) {
@@ -386,21 +397,26 @@ window.itemdApp = () => ({
   async sendLine() {
     const line = this.input.trim();
     if (!line || this.busy) return;
+    const command = this.commands.find((candidate) => candidate.usage === line);
+    if (command?.requiresArgument) {
+      this.prepareCommand(command);
+      return;
+    }
     if (line === '/clear' || line === '/new') {
       this.entries = [];
       this.addEntry('', line === '/new' ? 'New session started. Active configuration retained.' : 'Transcript cleared.');
-      this.input = '';
+      this.input = ''; this.argumentHint = '';
       return;
     }
     if (line === '/theme' || line === '/theme light' || line === '/theme dark') {
       this.theme = line === '/theme light' ? 'light' : line === '/theme dark' ? 'dark' : this.theme === 'dark' ? 'light' : 'dark';
-      this.input = '';
+      this.input = ''; this.argumentHint = '';
       return;
     }
     if (line === '/reasoning on') this.showingReasoning = true;
     if (line === '/reasoning off') this.showingReasoning = false;
     this.addEntry(line.startsWith('!') ? 'shell' : line.startsWith('/') ? 'command' : 'you', line, line.startsWith('/') ? 'text' : 'user');
-    this.input = '';
+    this.input = ''; this.argumentHint = '';
     try { await this.submitCommand(line); }
     catch (error) { this.addEntry('error', error.message, 'error'); }
   },
