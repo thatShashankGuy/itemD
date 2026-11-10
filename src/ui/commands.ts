@@ -56,6 +56,16 @@ export const TUI_COMMANDS = [
     description: "Display a recorded run without model access",
   },
   {
+    name: "/sessions",
+    usage: "/sessions",
+    description: "Browse the ten most recent sessions",
+  },
+  {
+    name: "/resume",
+    usage: "/resume [session-id]",
+    description: "Resume a recent session or open the session picker",
+  },
+  {
     name: "/clear",
     usage: "/clear",
     description: "Clear the transcript",

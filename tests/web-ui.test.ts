@@ -70,6 +70,32 @@ describe("web UI", () => {
     expect(html).toContain("itemD — web workspace");
     expect(html).toContain("/assets/logo.png");
     expect(html).toContain("Describe a task");
+    expect(html).toContain("Web view is experimental.");
+    expect(html).toContain("https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js");
+    expect(html).toContain("Configure");
+    expect(html).toContain("aria-labelledby=\"config-title\"");
+    expect(html).toContain("--scrim: rgb(255 255 255 / .7)");
+    expect(html).toContain("<textarea");
+    expect(html).toContain("@keydown=\"handleInputKeydown($event)\"");
+    expect(html).toContain("if (event.shiftKey) return;");
+    expect(html).toContain("event.key === 'Tab'");
+    expect(html).toContain("selectedCommandIndex");
+    expect(html).toContain("min-height: 20vh");
+    expect(html).toContain("argumentHint");
+    expect(html).toContain("requiresArgument: true");
+    expect(html).toContain("prepareCommand(command)");
+    expect(html).toContain("line.startsWith('/') && command === undefined");
+    expect(html).toContain("pickerItems");
+    expect(html).toContain("Recorded runs");
+    expect(html).toContain("Recent sessions");
+    expect(html).toContain("action: '/replay'");
+    expect(html).toContain("action: '/resume'");
+    expect(html).toContain("@keydown.escape.window=\"handleEscape()\"");
+    expect(html).toContain("#logo { width: 64px; height: 56px");
+    expect(html).toContain("class=\"controls\"");
+    expect(html).toContain("filteredCommands");
+    expect(html).not.toContain(">Send</button>");
+    expect(html).not.toContain("class=\"sidebar\"");
 
     const stateResponse = await fetch(withToken(browserUrl!, "/api/state"));
     expect(stateResponse.status).toBe(200);
@@ -80,6 +106,26 @@ describe("web UI", () => {
         effort: "high",
         busy: false,
       },
+    });
+
+    const sessionsResponse = await fetch(withToken(browserUrl!, "/api/input"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ line: "/sessions" }),
+    });
+    const sessionsResult = await sessionsResponse.json();
+    expect(sessionsResponse.status).toBe(200);
+    expect(sessionsResult.sessions).toHaveLength(1);
+
+    const resumeResponse = await fetch(withToken(browserUrl!, "/api/input"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ line: "/resume " + sessionsResult.sessions[0].id }),
+    });
+    expect(resumeResponse.status).toBe(200);
+    expect(await resumeResponse.json()).toMatchObject({
+      session: { id: sessionsResult.sessions[0].id },
+      messages: [],
     });
 
     const commandResponse = await fetch(withToken(browserUrl!, "/api/input"), {

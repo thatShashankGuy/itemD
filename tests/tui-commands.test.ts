@@ -13,7 +13,7 @@ describe("TUI slash commands", () => {
   test("filters commands by the typed prefix", () => {
     expect(
       suggestTuiCommands("/re").map((command) => command.name),
-    ).toEqual(["/reasoning", "/reload", "/replays", "/replay"]);
+    ).toEqual(["/reasoning", "/reload", "/replays", "/replay", "/resume"]);
     expect(suggestTuiCommands("plain task")).toEqual([]);
     expect(suggestTuiCommands("/replay ")).toEqual([]);
   });
@@ -34,6 +34,8 @@ describe("TUI slash commands", () => {
     expect(help).toContain("/setup [browser]");
     expect(help).toContain("/new");
     expect(help).toContain("Start a new session");
+    expect(help).toContain("/sessions");
+    expect(help).toContain("/resume [session-id]");
     expect(help).toContain("/theme [dark|light]");
     expect(help).toContain("Switch between dark and light terminal themes");
   });

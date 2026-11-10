@@ -1,6 +1,9 @@
-import type { CommandResult } from "../execution/command.ts";
+import {
+  COMMAND_TIMEOUT_MS,
+  executeCommand,
+  type CommandResult,
+} from "../execution/command.ts";
 import { parseShellInput } from "../execution/shell-input.ts";
-import { executeTool } from "../tools/dispatcher.ts";
 import type { ToolResult } from "../tools/contracts.ts";
 
 export async function executePrefixedShellCommand(
@@ -20,16 +23,37 @@ export async function executePrefixedShellCommand(
     };
   }
 
-  return executeTool(
-    {
-      type: "shell",
-      executable: parsed.executable,
-      args: parsed.args,
-    },
+  const result = await executeCommand(
+    parsed.executable,
+    parsed.args,
     workspaceRoot,
+    COMMAND_TIMEOUT_MS,
+    undefined,
     signal,
-    { shellMode: "auto" },
-  ) as Promise<ToolResult<CommandResult>>;
+  );
+
+  if (result.ok) {
+    return { ok: true, output: result };
+  }
+
+  return {
+    ok: false,
+    error: {
+      code: result.cancelled
+        ? "COMMAND_CANCELLED"
+        : result.timedOut
+          ? "COMMAND_TIMED_OUT"
+          : "COMMAND_FAILED",
+      message: result.cancelled
+        ? "Command cancelled"
+        : result.timedOut
+          ? `Command exceeded ${COMMAND_TIMEOUT_MS}ms`
+          : result.error?.message ||
+            result.stderr ||
+            `Command exited with code ${result.exitCode}`,
+      details: result,
+    },
+  };
 }
 
 export function formatShellResult(

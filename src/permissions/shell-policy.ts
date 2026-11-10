@@ -9,6 +9,7 @@ type PolicyResult =
     };
 
 const ALLOWED_EXECUTABLES = new Set([
+  "cat",
   "git",
   "ls",
   "node",
@@ -192,6 +193,16 @@ function validateRipgrepCommand(args: string[]): PolicyResult {
     : { ok: true };
 }
 
+function validateCatCommand(args: string[]): PolicyResult {
+  const fileArguments = args[0] === "--"
+    ? args.slice(1)
+    : args.filter((argument) => !argument.startsWith("-"));
+
+  return fileArguments.length > 0
+    ? { ok: true }
+    : denyCommand("cat requires at least one file path");
+}
+
 /**
  * Applies a conservative command allowlist before spawning a process.
  * This prevents common accidental host mutations; it is not a sandbox.
@@ -208,6 +219,9 @@ export function validateShellPolicy(
   }
 
   switch (call.executable) {
+    case "cat":
+      return validateCatCommand(call.args);
+
     case "pwd":
       return call.args.length === 0
         ? { ok: true }

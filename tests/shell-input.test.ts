@@ -2,6 +2,7 @@ import {
   mkdtemp,
   realpath,
   rm,
+  writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -61,18 +62,32 @@ describe("direct shell input", () => {
     expect(formatShellResult("pwd", result)).toContain(directory);
   });
 
-  test("routes disallowed commands through the shell policy", async () => {
-    const result = await executePrefixedShellCommand("echo unsafe", tmpdir());
-
-    expect(result).toEqual({
-      ok: false,
-      error: {
-        code: "COMMAND_DENIED",
-        message: "Executable is not allowed: echo",
-      },
-    });
-    expect(formatShellResult("echo unsafe", result)).toContain(
-      "[shell error] Executable is not allowed: echo",
+  test("executes cat for a workspace file", async () => {
+    const directory = await realpath(
+      await mkdtemp(join(tmpdir(), "itemd-shell-cat-test-")),
     );
+    temporaryDirectories.push(directory);
+    const filePath = join(directory, "message.txt");
+    await writeFile(filePath, "hello from cat\n");
+
+    const result = await executePrefixedShellCommand("cat message.txt", directory);
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: { stdout: "hello from cat\n", exitCode: 0 },
+    });
+  });
+
+  test("allows a human command outside the model shell allowlist", async () => {
+    const result = await executePrefixedShellCommand(
+      `node -e "process.stdout.write('human command')"`,
+      tmpdir(),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: { stdout: "human command", exitCode: 0 },
+    });
+    expect(formatShellResult("node -e ...", result)).toContain("human command");
   });
 });

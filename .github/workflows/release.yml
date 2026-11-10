@@ -58,8 +58,7 @@ jobs:
         run: |
           mkdir -p prebuilds/linux-x64
           cp node_modules/node-pty/build/Release/pty.node prebuilds/linux-x64/pty.node
-          cp node_modules/node-pty/build/Release/spawn-helper prebuilds/linux-x64/spawn-helper
-          test -x prebuilds/linux-x64/spawn-helper
+          test -f prebuilds/linux-x64/pty.node
 
       - name: Build binary
         run: |
@@ -103,6 +102,8 @@ jobs:
           mkdir -p prebuilds/darwin-arm64
           cp node_modules/node-pty/prebuilds/darwin-arm64/pty.node prebuilds/darwin-arm64/pty.node
           cp node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper prebuilds/darwin-arm64/spawn-helper
+          chmod +x prebuilds/darwin-arm64/spawn-helper
+          test -f prebuilds/darwin-arm64/pty.node
           test -x prebuilds/darwin-arm64/spawn-helper
 
       - name: Build binary
