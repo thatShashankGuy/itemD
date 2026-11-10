@@ -52,6 +52,13 @@ type TraceEvent =
       result: ToolResult;
     }
   | {
+      type: "activity";
+      timestamp: string;
+      step: number;
+      phase: "waiting_for_approval" | "executing_tool";
+      message: string;
+    }
+  | {
       type: "run_end";
       timestamp: string;
       result: AgentRunResult;

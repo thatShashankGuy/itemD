@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -267,5 +267,10 @@ describe("agent runtime event integration", () => {
         }),
       ]),
     );
+
+    const trace = await readFile(join(workspace, result.tracePath), "utf8");
+    expect(trace).toContain('"type":"activity"');
+    expect(trace).toContain('"phase":"waiting_for_approval"');
+    expect(trace).not.toContain('"type":"model_delta"');
   });
 });

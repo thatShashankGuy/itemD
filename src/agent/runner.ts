@@ -115,6 +115,34 @@ async function emitRuntimeEvent(
   }
 }
 
+async function emitToolActivity(
+  trace: TraceWriter,
+  onRuntimeEvent: AgentRuntimeEventHandler | undefined,
+  step: number,
+  activity: {
+    phase: "waiting_for_approval" | "executing_tool";
+    message: string;
+  },
+): Promise<void> {
+  const timestamp = new Date().toISOString();
+
+  await writeTraceEvent(trace, {
+    type: "activity",
+    timestamp,
+    step,
+    phase: activity.phase,
+    message: activity.message,
+  });
+  await emitRuntimeEvent(onRuntimeEvent, {
+    runId: trace.id,
+    timestamp,
+    type: "activity",
+    phase: activity.phase,
+    message: activity.message,
+    step,
+  });
+}
+
 async function callModel(
   adapter: ModelAdapter,
   messages: readonly ModelMessage[],
@@ -330,14 +358,7 @@ export async function runAgent(
       const executionOptions: ToolExecutionOptions = {
         ...toolOptions,
         onActivity: async (activity) => {
-          await emitRuntimeEvent(onRuntimeEvent, {
-            runId: trace.id,
-            timestamp: new Date().toISOString(),
-            type: "activity",
-            phase: activity.phase,
-            message: activity.message,
-            step,
-          });
+          await emitToolActivity(trace, onRuntimeEvent, step, activity);
           await toolOptions?.onActivity?.(activity);
         },
       };

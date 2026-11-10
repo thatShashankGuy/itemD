@@ -235,6 +235,10 @@ function formatReplayEvent(
     );
   }
 
+  if (event.type === "activity") {
+    return `step ${String(event.step ?? "?")} • ${String(event.phase ?? "activity")} • ${String(event.message ?? "")}`;
+  }
+
   if (event.type === "run_end") {
     return trimReplayText(`run complete\n${formatReplayJson(event.result)}`);
   }
