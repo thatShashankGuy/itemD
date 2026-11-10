@@ -1,0 +1,45 @@
+name: Protect release workflow
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: read
+
+jobs:
+  protect-release-workflow:
+    name: Protect release workflow
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the base commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+
+      - name: Reject protected workflow deletion
+        env:
+          PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin "refs/pull/${PULL_REQUEST_NUMBER}/head"
+
+          protected_paths=(
+            ".github/workflows/release.yml"
+            ".github/workflows/protect-release-workflow.yml"
+          )
+          deleted_paths="$(git diff --name-only --diff-filter=D "$BASE_SHA" FETCH_HEAD -- "${protected_paths[@]}")"
+
+          if [[ -n "$deleted_paths" ]]; then
+            echo "Protected release workflow files cannot be deleted:"
+            printf '%s\n' "$deleted_paths"
+            exit 1
+          fi
+
+          echo "Protected release workflow files are present in the proposed change."
