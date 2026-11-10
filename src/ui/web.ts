@@ -241,7 +241,8 @@ function pageHtml(token: string): string {
     .command-list .selected { color: var(--accent); }
     .picker-list { padding: .5rem 1rem; color: var(--text); background: var(--panel); white-space: pre-wrap; }
     .picker-list .selected { color: var(--accent); }
-    footer { min-height: 1.8rem; padding: .35rem .75rem; color: var(--muted); background: var(--panel); }
+    footer { min-height: 1.8rem; display: flex; justify-content: space-between; gap: 1rem; padding: .35rem .75rem; color: var(--muted); background: var(--panel); }
+    .disclaimer { color: var(--warning); }
     .empty { color: var(--muted); padding: 2rem 0; text-align: center; }
     .modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 1rem; background: var(--scrim); }
     .modal { width: min(30rem, 100%); max-width: 30rem; padding: 1.25rem; background: var(--panel); box-shadow: 0 1rem 3rem rgb(0 0 0 / .35); }
@@ -291,7 +292,7 @@ function pageHtml(token: string): string {
       </form>
     </div>
   </main>
-  <footer x-text="footer"></footer>
+  <footer><span x-text="footer"></span><span class="disclaimer">Web view is experimental.</span></footer>
 </div>
 <div class="modal-backdrop" x-show="configOpen" x-cloak @click.self="configOpen = false">
   <section class="modal" role="dialog" aria-modal="true" aria-labelledby="config-title">

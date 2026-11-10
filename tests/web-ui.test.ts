@@ -70,6 +70,7 @@ describe("web UI", () => {
     expect(html).toContain("itemD — web workspace");
     expect(html).toContain("/assets/logo.png");
     expect(html).toContain("Describe a task");
+    expect(html).toContain("Web view is experimental.");
     expect(html).toContain("https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js");
     expect(html).toContain("Configure");
     expect(html).toContain("aria-labelledby=\"config-title\"");
