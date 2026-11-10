@@ -67,6 +67,10 @@ import {
   executePrefixedShellCommand,
   formatShellResult,
 } from "./shell.ts";
+import {
+  formatSidebarContent,
+  shouldShowSidebar,
+} from "./opentui-layout.ts";
 
 type ThemeName = "dark" | "light";
 
@@ -532,6 +536,50 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   header.add(headerText);
   header.add(statusText);
 
+  const body = new BoxRenderable(renderer, {
+    id: "body",
+    width: "100%",
+    flexGrow: 1,
+    flexBasis: 0,
+    minHeight: 1,
+    flexDirection: "row",
+    backgroundColor: COLORS.background,
+  });
+  const sidebar = new BoxRenderable(renderer, {
+    id: "sidebar",
+    width: 28,
+    minWidth: 28,
+    flexShrink: 0,
+    flexDirection: "column",
+    border: true,
+    borderStyle: "rounded",
+    borderColor: COLORS.border,
+    title: " context ",
+    titleColor: COLORS.muted,
+    backgroundColor: COLORS.panel,
+    paddingX: 1,
+  });
+  const sidebarText = new TextRenderable(renderer, {
+    id: "sidebar-text",
+    content: "",
+    width: "100%",
+    flexGrow: 1,
+    flexShrink: 0,
+    fg: COLORS.text,
+    wrapMode: "word",
+  });
+  sidebar.add(sidebarText);
+
+  const mainColumn = new BoxRenderable(renderer, {
+    id: "main-column",
+    flexGrow: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    minHeight: 1,
+    flexDirection: "column",
+    backgroundColor: COLORS.background,
+  });
+
   const transcript = new ScrollBoxRenderable(renderer, {
     id: "transcript",
     width: "100%",
@@ -628,10 +676,13 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     wrapMode: "none",
   });
 
+  body.add(sidebar);
+  body.add(mainColumn);
+  mainColumn.add(transcript);
+  mainColumn.add(commandPalette);
+  mainColumn.add(inputBox);
   app.add(header);
-  app.add(transcript);
-  app.add(commandPalette);
-  app.add(inputBox);
+  app.add(body);
   app.add(footer);
   renderer.root.add(app);
 
@@ -738,11 +789,27 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     }, 1_800);
   };
 
+  const updateSidebar = (): void => {
+    sidebarText.content = formatSidebarContent({
+      workspaceName: basename(options.workspaceRoot),
+      sessionId: sessionContext.session.id,
+      provider: active.configuration.provider,
+      model: active.configuration.model,
+      effort: active.configuration.effort,
+      webSearchEnabled: active.configuration.webSearch?.enabled === true,
+    });
+  };
+
   const updateHeader = (): void => {
     const configuration = active.configuration;
     headerText.content =
       `${configuration.provider}  •  ${configuration.model}  •  ${configuration.effort}  •  web ${configuration.webSearch?.enabled ? "on" : "off"}\n` +
       `workspace: ${basename(options.workspaceRoot)}  •  session: ${sessionContext.session.id}  •  theme: ${COLORS.name}`;
+    updateSidebar();
+  };
+
+  const updateResponsiveLayout = (): void => {
+    sidebar.visible = shouldShowSidebar(renderer.width);
   };
 
   const appendLog = (
@@ -893,6 +960,10 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     logoFallback.color = theme.accent;
     headerText.fg = theme.text;
     statusText.fg = busy ? theme.warning : theme.success;
+    sidebar.borderColor = theme.border;
+    sidebar.titleColor = theme.muted;
+    sidebar.backgroundColor = theme.panel;
+    sidebarText.fg = theme.text;
     transcript.borderColor = theme.border;
     transcript.titleColor = theme.muted;
     transcript.viewport.backgroundColor = theme.background;
@@ -1998,9 +2069,11 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   };
 
   renderer.keyInput.on("keypress", onKeyPress);
+  renderer.on(CliRenderEvents.RESIZE, updateResponsiveLayout);
   renderer.on(CliRenderEvents.SELECTION, onSelection);
   renderer.once(CliRenderEvents.DESTROY, () => {
     renderer.keyInput.off("keypress", onKeyPress);
+    renderer.off(CliRenderEvents.RESIZE, updateResponsiveLayout);
     renderer.off(CliRenderEvents.SELECTION, onSelection);
     process.removeListener("SIGTERM", onShutdownSignal);
     process.removeListener("SIGHUP", onShutdownSignal);
@@ -2040,6 +2113,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     void handleLine(line);
   });
 
+  updateResponsiveLayout();
   updateHeader();
   clearTranscript();
   appendLog("session  ", sessionContext.session.id, COLORS.muted);
