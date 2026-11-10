@@ -73,6 +73,10 @@ import {
   type RecentSessionModel,
   shouldShowSidebar,
 } from "./opentui-layout.ts";
+import {
+  formatActivitySnapshot,
+  formatShellApprovalPanel,
+} from "./opentui-activity.ts";
 
 type ThemeName = "dark" | "light";
 
@@ -612,6 +616,50 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       },
     },
   });
+  const activityBox = new BoxRenderable(renderer, {
+    id: "activity",
+    width: "100%",
+    height: 3,
+    flexShrink: 0,
+    border: true,
+    borderStyle: "rounded",
+    borderColor: COLORS.border,
+    title: " activity ",
+    titleColor: COLORS.muted,
+    paddingX: 1,
+    visible: false,
+    backgroundColor: COLORS.panel,
+  });
+  const activityText = new TextRenderable(renderer, {
+    id: "activity-text",
+    content: "",
+    width: "100%",
+    fg: COLORS.muted,
+    wrapMode: "word",
+  });
+  activityBox.add(activityText);
+  const approvalPanel = new BoxRenderable(renderer, {
+    id: "shell-approval",
+    width: "100%",
+    height: 6,
+    flexShrink: 0,
+    border: true,
+    borderStyle: "rounded",
+    borderColor: COLORS.warning,
+    title: " shell approval ",
+    titleColor: COLORS.warning,
+    paddingX: 1,
+    visible: false,
+    backgroundColor: COLORS.panel,
+  });
+  const approvalText = new TextRenderable(renderer, {
+    id: "shell-approval-text",
+    content: "",
+    width: "100%",
+    fg: COLORS.warning,
+    wrapMode: "word",
+  });
+  approvalPanel.add(approvalText);
   const commandPalette = new BoxRenderable(renderer, {
     id: "command-palette",
     width: "100%",
@@ -681,6 +729,8 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   body.add(sidebar);
   body.add(mainColumn);
   mainColumn.add(transcript);
+  mainColumn.add(activityBox);
+  mainColumn.add(approvalPanel);
   mainColumn.add(commandPalette);
   mainColumn.add(inputBox);
   app.add(header);
@@ -794,6 +844,11 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     }, 1_800);
   };
 
+  const updateActivity = (content: string, visible = true): void => {
+    activityText.content = content;
+    activityBox.visible = visible;
+  };
+
   const updateSidebar = (): void => {
     const recentSessions: RecentSessionModel[] = sessionService
       .listSessions(10)
@@ -884,6 +939,11 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     }
 
     if (event.type === "activity") {
+      updateActivity(formatActivitySnapshot({
+        phase: event.phase,
+        message: event.message,
+        ...(event.step === undefined ? {} : { step: event.step }),
+      }));
       if (event.phase === "executing_tool") {
         footer.content = ` ${event.message}`;
         footer.fg = COLORS.muted;
@@ -892,6 +952,11 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     }
 
     if (event.type === "tool_started") {
+      updateActivity(formatActivitySnapshot({
+        phase: "tool_started",
+        message: event.toolName,
+        step: event.step,
+      }));
       appendLog(
         "tool  ",
         `${event.toolName} started (step ${event.step})`,
@@ -901,6 +966,11 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     }
 
     if (event.type === "tool_finished") {
+      updateActivity(formatActivitySnapshot({
+        phase: event.result.ok ? "tool_finished" : "tool_failed",
+        message: event.toolName,
+        step: event.step,
+      }));
       appendLog(
         "tool  ",
         `${event.toolName} ${event.result.ok ? "completed" : "failed"}`,
@@ -925,6 +995,8 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
 
     pendingShellApproval = null;
     pending.cleanup();
+    approvalPanel.visible = false;
+    approvalText.content = "";
     taskInput.value = "";
     taskInput.placeholder = "itemD is working…";
     footer.content = DEFAULT_FOOTER_TEXT;
@@ -940,12 +1012,16 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       .join(" ");
 
   const shellApproval = new ShellApprovalController(async (request, signal) => {
+    const command = formatShellApprovalCommand(request);
     appendLog(
       "approval  ",
-      `The model requested: ${formatShellApprovalCommand(request)}\n` +
+      `The model requested: ${command}\n` +
         "Enter 1 for once, 2 to allow this exact command later, or 3 to deny.",
       COLORS.warning,
     );
+    approvalText.content = formatShellApprovalPanel(command);
+    approvalPanel.visible = true;
+    updateActivity("waiting_for_approval  •  shell command", true);
     footer.content = " Approval: 1 once • 2 allow later • 3 deny • Esc deny ";
     footer.fg = COLORS.warning;
     taskInput.placeholder = "Enter 1, 2, or 3";
@@ -980,6 +1056,14 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     sidebar.titleColor = theme.muted;
     sidebar.backgroundColor = theme.panel;
     sidebarText.fg = theme.text;
+    activityBox.borderColor = theme.border;
+    activityBox.titleColor = theme.muted;
+    activityBox.backgroundColor = theme.panel;
+    activityText.fg = theme.muted;
+    approvalPanel.borderColor = theme.warning;
+    approvalPanel.titleColor = theme.warning;
+    approvalPanel.backgroundColor = theme.panel;
+    approvalText.fg = theme.warning;
     transcript.borderColor = theme.border;
     transcript.titleColor = theme.muted;
     transcript.viewport.backgroundColor = theme.background;
@@ -1303,6 +1387,11 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
 
     if (value && showLoader) {
       startLoader();
+    }
+
+    if (!value) {
+      updateActivity("", false);
+      approvalPanel.visible = false;
     }
 
     if (value && (showLoader || status === "REPLAY" || status === "SHELL")) {
