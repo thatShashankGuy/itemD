@@ -77,6 +77,9 @@ describe("web UI", () => {
     expect(html).toContain("<textarea");
     expect(html).toContain("@keydown.enter.exact.prevent=\"sendLine()\"");
     expect(html).toContain("@keydown.shift.enter.stop");
+    expect(html).toContain("@keydown.escape.window=\"handleEscape()\"");
+    expect(html).toContain("#logo { width: 64px; height: 56px");
+    expect(html).toContain("class=\"controls\"");
     expect(html).toContain("filteredCommands");
     expect(html).not.toContain(">Send</button>");
     expect(html).not.toContain("class=\"sidebar\"");

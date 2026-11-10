@@ -197,14 +197,15 @@ function pageHtml(token: string): string {
     button.primary { color: white; background: var(--accent); }
     button.danger { color: var(--error); }
     body.light { --bg: #f6f8fa; --panel: #ffffff; --panel-2: #f0f2f4; --text: #1f2328; --muted: #59636e; --accent: #c62828; --success: #1a7f37; --warning: #9a6700; --error: #cf222e; --user: #b42318; --scrim: rgb(255 255 255 / .7); }
-    .app { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
+    .app { height: 100vh; min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
     header { display: flex; align-items: center; gap: .75rem; padding: .35rem .75rem; background: var(--bg); }
-    #logo { width: 48px; height: 32px; object-fit: contain; image-rendering: pixelated; }
+    #logo { width: 64px; height: 56px; object-fit: contain; image-rendering: pixelated; }
     .brand { min-width: 0; flex: 1; color: var(--accent); font-weight: 700; }
     .status { color: var(--success); white-space: nowrap; }
     .status.running { color: var(--warning); }
     main { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; }
     .transcript { min-height: 0; overflow: auto; padding: .75rem 1rem; }
+    .controls { min-width: 0; }
     .entry { margin-bottom: 1rem; white-space: pre-wrap; overflow-wrap: anywhere; }
     .entry .label { color: var(--muted); margin-bottom: .2rem; }
     .entry.user .label { color: var(--user); }
@@ -230,7 +231,7 @@ function pageHtml(token: string): string {
     @media (max-width: 600px) { .brand { display: none; } .composer { flex-wrap: wrap; } .composer textarea { flex-basis: 100%; } }
   </style>
 </head>
-<body x-data="itemdApp()" :class="theme === 'light' ? 'light' : ''" @keydown.escape.window="configOpen = false">
+<body x-data="itemdApp()" :class="theme === 'light' ? 'light' : ''" @keydown.escape.window="handleEscape()">
 <div class="app">
   <header>
     <img id="logo" src="/assets/logo.png?token=${encodeURIComponent(token)}" alt="itemD logo">
@@ -248,17 +249,19 @@ function pageHtml(token: string): string {
         </article>
       </template>
     </section>
-    <div class="activity" x-show="activity" x-text="activity" x-cloak></div>
-    <div class="approval" x-show="approval" x-text="approval" x-cloak></div>
-    <div class="command-list" x-show="filteredCommands.length > 0" x-cloak>
-      <template x-for="command in filteredCommands" :key="command.usage">
-        <div x-text="command.usage + '  ' + command.description"></div>
-      </template>
+    <div class="controls">
+      <div class="activity" x-show="activity" x-text="activity" x-cloak></div>
+      <div class="approval" x-show="approval" x-text="approval" x-cloak></div>
+      <div class="command-list" x-show="filteredCommands.length > 0" x-cloak>
+        <template x-for="command in filteredCommands" :key="command.usage">
+          <div x-text="command.usage + '  ' + command.description"></div>
+        </template>
+      </div>
+      <form class="composer" @submit.prevent="sendLine()">
+        <textarea rows="1" autocomplete="off" placeholder="Describe a task, type / for commands, or ! for shell" x-model="input" x-ref="input" @keydown.enter.exact.prevent="sendLine()" @keydown.shift.enter.stop></textarea>
+        <button class="danger" type="button" @click="stopTask()" x-show="busy">Stop</button>
+      </form>
     </div>
-    <form class="composer" @submit.prevent="sendLine()">
-      <textarea rows="1" autocomplete="off" placeholder="Describe a task, type / for commands, or ! for shell" x-model="input" x-ref="input" @keydown.enter.exact.prevent="sendLine()" @keydown.shift.enter.stop></textarea>
-      <button class="danger" type="button" @click="stopTask()" x-show="busy">Stop</button>
-    </form>
   </main>
   <footer x-text="footer"></footer>
 </div>
@@ -377,7 +380,15 @@ window.itemdApp = () => ({
     try { await this.submitCommand(line); }
     catch (error) { this.addEntry('error', error.message, 'error'); }
   },
-  async stopTask() { await this.api('/api/stop', { method: 'POST', body: '{}' }); },
+  handleEscape() {
+    if (this.busy) { void this.stopTask(); return; }
+    this.configOpen = false;
+  },
+  async stopTask() {
+    this.status = 'STOPPING'; this.footer = 'Stopping…';
+    try { await this.api('/api/stop', { method: 'POST', body: '{}' }); }
+    catch (error) { this.addEntry('error', error.message, 'error'); }
+  },
   async saveConfig() {
     try {
       if (this.model) await this.submitCommand('/model ' + this.model);
