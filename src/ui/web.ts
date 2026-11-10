@@ -7,6 +7,7 @@ import {
   type AgentRunEvent,
   type AgentRunResult,
 } from "../agent/runner.ts";
+import type { AgentRuntimeEvent } from "../agent/events.ts";
 import {
   readConfiguration,
   resolveConfiguration,
@@ -39,6 +40,7 @@ type ActiveConfiguration = {
 type WebEvent =
   | { seq: number; type: "log"; label: string; message: string; tone?: string }
   | { seq: number; type: "reasoning"; step: number; text: string }
+  | { seq: number; type: "activity"; phase: string; message: string; step?: number }
   | { seq: number; type: "status"; status: "ready" | "running" | "stopping" }
   | { seq: number; type: "state"; state: WebState }
   | { seq: number; type: "run"; result: AgentRunResult };
@@ -46,6 +48,7 @@ type WebEvent =
 type WebEventInput =
   | { type: "log"; label: string; message: string; tone?: string }
   | { type: "reasoning"; step: number; text: string }
+  | { type: "activity"; phase: string; message: string; step?: number }
   | { type: "status"; status: "ready" | "running" | "stopping" }
   | { type: "state"; state: WebState }
   | { type: "run"; result: AgentRunResult };
@@ -184,177 +187,192 @@ function pageHtml(token: string): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>itemD — web workspace</title>
   <style>
-    :root {
-      color-scheme: dark;
-      --bg: #0d1117; --panel: #161b22; --panel-2: #1c2128; --border: #30363d;
-      --text: #f0f3f6; --muted: #8b949e; --accent: #f04444; --success: #56d364;
-      --warning: #e3b341; --error: #ff7b72; --user: #ff7b72;
-    }
+    :root { color-scheme: dark; --bg: #0d1117; --panel: #161b22; --panel-2: #1c2128; --text: #f0f3f6; --muted: #8b949e; --accent: #f04444; --success: #56d364; --warning: #e3b341; --error: #ff7b72; --user: #ff7b72; }
     * { box-sizing: border-box; }
+    [x-cloak] { display: none !important; }
     body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text); font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     button, input, select { font: inherit; }
-    button { border: 1px solid var(--border); border-radius: 6px; padding: .55rem .8rem; color: var(--text); background: var(--panel-2); cursor: pointer; }
-    button:hover { border-color: var(--accent); }
-    button.primary { color: white; border-color: var(--accent); background: var(--accent); }
+    button { border: 0; border-radius: 5px; padding: .5rem .75rem; color: var(--text); background: var(--panel-2); cursor: pointer; }
+    button:hover { color: var(--accent); }
+    button.primary { color: white; background: var(--accent); }
     button.danger { color: var(--error); }
-    body.light { --bg: #f6f8fa; --panel: #ffffff; --panel-2: #f0f2f4; --border: #afb8c1; --text: #1f2328; --muted: #59636e; --accent: #c62828; --success: #1a7f37; --warning: #9a6700; --error: #cf222e; --user: #b42318; }
+    body.light { --bg: #f6f8fa; --panel: #ffffff; --panel-2: #f0f2f4; --text: #1f2328; --muted: #59636e; --accent: #c62828; --success: #1a7f37; --warning: #9a6700; --error: #cf222e; --user: #b42318; }
     .app { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
-    header { display: flex; align-items: center; gap: 1rem; padding: .75rem 1rem; border-bottom: 1px solid var(--border); background: var(--panel); }
-    #logo { width: 64px; height: 40px; object-fit: contain; image-rendering: pixelated; }
-    .brand { min-width: 0; flex: 1; }
-    .brand h1 { margin: 0; color: var(--accent); font-size: 1.1rem; }
-    .brand p { margin: .2rem 0 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    header { display: flex; align-items: center; gap: .75rem; padding: .35rem .75rem; background: var(--bg); }
+    #logo { width: 48px; height: 32px; object-fit: contain; image-rendering: pixelated; }
+    .brand { min-width: 0; flex: 1; color: var(--accent); font-weight: 700; }
     .status { color: var(--success); white-space: nowrap; }
     .status.running { color: var(--warning); }
-    main { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 1rem; padding: 1rem; }
-    .transcript, .sidebar, .composer { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
-    .transcript { min-height: 0; overflow: auto; padding: 1rem; }
+    main { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; }
+    .transcript { min-height: 0; overflow: auto; padding: .75rem 1rem; }
     .entry { margin-bottom: 1rem; white-space: pre-wrap; overflow-wrap: anywhere; }
     .entry .label { color: var(--muted); margin-bottom: .2rem; }
     .entry.user .label { color: var(--user); }
     .entry.success .label { color: var(--success); }
     .entry.warning .label { color: var(--warning); }
     .entry.error .label { color: var(--error); }
-    .entry.reasoning { color: var(--muted); border-left: 2px solid var(--border); padding-left: .75rem; }
-    .sidebar { padding: 1rem; height: max-content; }
-    .sidebar h2 { margin: 0 0 1rem; color: var(--accent); font-size: 1rem; }
-    .sidebar label { display: block; margin: .8rem 0 .35rem; color: var(--muted); }
-    select, input[type=text] { width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: .55rem; color: var(--text); background: var(--bg); }
-    .config-value { display: block; margin: .25rem 0; color: var(--text); }
-    .sidebar .actions { display: grid; gap: .5rem; margin-top: 1rem; }
-    .composer { grid-column: 1 / -1; display: flex; gap: .5rem; padding: .6rem; }
-    .composer input { flex: 1; min-width: 0; }
-    footer { min-height: 2rem; padding: .45rem 1rem; color: var(--muted); border-top: 1px solid var(--border); background: var(--panel); }
+    .entry.reasoning { color: var(--muted); }
+    .activity { min-height: 1.8rem; padding: .35rem 1rem; color: var(--muted); background: var(--panel); }
+    .approval { padding: .75rem 1rem; color: var(--warning); background: var(--panel); white-space: pre-wrap; }
+    .composer { display: flex; gap: .5rem; padding: .6rem .75rem; background: var(--panel); }
+    .composer input, select { width: 100%; min-width: 0; border: 0; border-radius: 4px; padding: .55rem; color: var(--text); background: var(--bg); outline: 0; }
+    .composer input:focus, select:focus { box-shadow: inset 0 -2px var(--accent); }
+    .command-list { padding: .5rem 1rem; color: var(--text); background: var(--panel); white-space: pre-wrap; }
+    footer { min-height: 1.8rem; padding: .35rem .75rem; color: var(--muted); background: var(--panel); }
     .empty { color: var(--muted); padding: 2rem 0; text-align: center; }
-    @media (max-width: 800px) { main { grid-template-columns: 1fr; } .sidebar { order: -1; } .composer { grid-column: auto; } }
+    .modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgb(0 0 0 / .55); }
+    .modal { width: min(30rem, 100%); max-width: 30rem; padding: 1.25rem; background: var(--panel); box-shadow: 0 1rem 3rem rgb(0 0 0 / .35); }
+    .modal h2 { margin: 0 0 1rem; color: var(--accent); }
+    .modal label { display: block; margin: .8rem 0 .35rem; color: var(--muted); }
+    .modal .value { color: var(--text); }
+    .modal-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1.2rem; }
+    @media (max-width: 600px) { .brand { display: none; } .composer { flex-wrap: wrap; } .composer input { flex-basis: 100%; } }
   </style>
 </head>
-<body>
+<body x-data="itemdApp()" x-init="init()" :class="theme === 'light' ? 'light' : ''" @keydown.escape.window="configOpen = false">
 <div class="app">
   <header>
     <img id="logo" src="/assets/logo.png?token=${encodeURIComponent(token)}" alt="itemD logo">
-    <div class="brand"><h1>itemD — web workspace</h1><p id="workspace">Connecting…</p></div>
-    <div id="status" class="status">READY</div>
+    <div class="brand">itemD</div>
+    <button type="button" @click="configOpen = true">Configure</button>
+    <div class="status" :class="{ running: busy }" x-text="status"></div>
   </header>
   <main>
-    <section id="transcript" class="transcript" aria-live="polite"><div class="empty">Type a coding task below, or use / for commands.</div></section>
-    <aside class="sidebar">
-      <h2>Configuration</h2>
-      <label>Provider</label><span id="provider" class="config-value">—</span>
-      <label for="model">Model</label><select id="model"></select>
-      <label for="effort">Reasoning effort</label><select id="effort"></select>
-      <span id="web-search" class="config-value">Web search: —</span>
-      <div class="actions">
-        <button id="setup">Open browser setup</button>
-        <button id="reload">Reload configuration</button>
-        <button id="theme">Toggle theme</button>
-      </div>
-    </aside>
-    <form id="composer" class="composer">
-      <input id="input" type="text" autocomplete="off" placeholder="Describe a task, type / for commands, or ! for shell">
-      <button id="stop" class="danger" type="button" hidden>Stop</button>
-      <button class="primary" type="submit">Send</button>
+    <section class="transcript" aria-live="polite" x-ref="transcript">
+      <div class="empty" x-show="entries.length === 0">Type a coding task below, or use / for commands.</div>
+      <template x-for="(entry, index) in entries" :key="index">
+        <article class="entry" :class="entry.tone">
+          <div class="label" x-text="entry.label"></div>
+          <div x-text="entry.message"></div>
+        </article>
+      </template>
+    </section>
+    <div class="activity" x-show="activity" x-text="activity" x-cloak></div>
+    <div class="approval" x-show="approval" x-text="approval" x-cloak></div>
+    <div class="command-list" x-show="commandList" x-text="commandList" x-cloak></div>
+    <form class="composer" @submit.prevent="sendLine()">
+      <input type="text" autocomplete="off" placeholder="Describe a task, type / for commands, or ! for shell" x-model="input" x-ref="input">
+      <button class="danger" type="button" @click="stopTask()" x-show="busy">Stop</button>
+      <button class="primary" type="submit" :disabled="busy">Send</button>
     </form>
   </main>
-  <footer id="footer">Enter submits • / commands • ! shell • browser-local session</footer>
+  <footer x-text="footer"></footer>
 </div>
+<div class="modal-backdrop" x-show="configOpen" x-cloak @click.self="configOpen = false">
+  <section class="modal" role="dialog" aria-modal="true" aria-labelledby="config-title">
+    <h2 id="config-title">Configuration</h2>
+    <div class="value">Provider: <span x-text="state.provider || '—'"></span></div>
+    <label for="config-model">Model</label>
+    <select id="config-model" x-model="model">
+      <template x-for="item in models" :key="item.id"><option :value="item.id" x-text="item.displayName"></option></template>
+    </select>
+    <label for="config-effort">Reasoning effort</label>
+    <select id="config-effort" x-model="effort">
+      <template x-for="item in efforts" :key="item.id"><option :value="item.id" x-text="item.displayName"></option></template>
+    </select>
+    <div class="value" style="margin-top:.8rem">Web search: <span x-text="state.webSearch ? 'enabled' : 'disabled'"></span></div>
+    <div class="modal-actions">
+      <button class="primary" type="button" @click="saveConfig()">Save</button>
+      <button type="button" @click="openSetup()">Open key setup</button>
+      <button type="button" @click="reloadConfig()">Reload</button>
+      <button type="button" @click="toggleTheme()">Toggle theme</button>
+      <button type="button" @click="configOpen = false">Close</button>
+    </div>
+  </section>
+</div>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
 <script>
-(() => {
-  const token = ${tokenJson};
-  const transcript = document.getElementById('transcript');
-  const input = document.getElementById('input');
-  const status = document.getElementById('status');
-  const footer = document.getElementById('footer');
-  const stop = document.getElementById('stop');
-  const model = document.getElementById('model');
-  const effort = document.getElementById('effort');
-  let sequence = 0;
-  let busy = false;
-  let showingReasoning = false;
-
-  const api = async (path, options = {}) => {
+window.itemdApp = () => ({
+  token: ${tokenJson}, sequence: 0, busy: false, status: 'READY', theme: 'dark',
+  input: '', footer: 'Enter submits • / commands • ! shell', activity: '', approval: '', commandList: '',
+  entries: [], showingReasoning: false, configOpen: false, models: [], efforts: [], model: '', effort: '',
+  state: { provider: '', model: '', effort: '', webSearch: false, workspace: '', busy: false }, timer: null,
+  async api(path, options = {}) {
     const separator = path.includes('?') ? '&' : '?';
-    const response = await fetch(path + separator + 'token=' + encodeURIComponent(token), {
+    const response = await fetch(path + separator + 'token=' + encodeURIComponent(this.token), {
       ...options,
       headers: { 'content-type': 'application/json', ...(options.headers || {}) },
     });
     const value = await response.json();
     if (!response.ok) throw new Error(value.message || value.error || 'Request failed');
     return value;
-  };
-  const addEntry = (label, message, tone = 'text', extra = '') => {
-    const entry = document.createElement('article');
-    entry.className = 'entry ' + tone + (extra ? ' ' + extra : '');
-    const heading = document.createElement('div'); heading.className = 'label'; heading.textContent = label;
-    const content = document.createElement('div'); content.textContent = message;
-    entry.append(heading, content); transcript.append(entry); transcript.scrollTop = transcript.scrollHeight;
-  };
-  const setState = (state) => {
-    document.getElementById('provider').textContent = state.provider;
-    document.getElementById('workspace').textContent = 'workspace: ' + state.workspace;
-    document.getElementById('web-search').textContent = 'Web search: ' + (state.webSearch ? 'enabled' : 'disabled');
-    busy = state.busy;
-    status.textContent = busy ? 'RUNNING' : 'READY'; status.classList.toggle('running', busy); stop.hidden = !busy;
-  };
-  const applyEvents = (events) => events.forEach((event) => {
-    sequence = Math.max(sequence, event.seq || sequence);
-    if (event.type === 'log') addEntry(event.label, event.message, event.tone || 'text');
-    if (event.type === 'reasoning' && showingReasoning) addEntry('reasoning step ' + event.step, event.text, 'reasoning', 'reasoning');
-    if (event.type === 'status') { busy = event.status !== 'ready'; status.textContent = event.status.toUpperCase(); status.classList.toggle('running', busy); stop.hidden = !busy; }
-    if (event.type === 'state') setState(event.state);
-    if (event.type === 'run') {
-      const result = event.result;
-      addEntry(result.ok ? 'done' : result.status, result.ok ? result.answer : result.error.message, result.ok ? 'success' : 'error');
-      addEntry('run', result.steps + ' step' + (result.steps === 1 ? '' : 's') + ' • trace ' + result.traceId, 'text');
-    }
-  });
-  const refresh = async () => {
-    try {
-      const data = await api('/api/events?since=' + sequence);
-      applyEvents(data.events || []);
-    } catch (error) { footer.textContent = 'Connection error: ' + error.message; }
-  };
-  const sendLine = async (line) => {
-    if (!line || busy) return;
+  },
+  addEntry(label, message, tone = 'text') {
+    this.entries.push({ label, message, tone });
+    this.$nextTick(() => { this.$refs.transcript.scrollTop = this.$refs.transcript.scrollHeight; });
+  },
+  setState(state) {
+    this.state = state;
+    this.busy = state.busy;
+    this.status = this.busy ? 'RUNNING' : 'READY';
+    if (!this.busy) { this.activity = ''; this.approval = ''; }
+  },
+  applyEvents(events) {
+    events.forEach((event) => {
+      this.sequence = Math.max(this.sequence, event.seq || this.sequence);
+      if (event.type === 'log') this.addEntry(event.label, event.message, event.tone || 'text');
+      if (event.type === 'reasoning' && this.showingReasoning) this.addEntry('reasoning step ' + event.step, event.text, 'reasoning');
+      if (event.type === 'activity') this.activity = (event.step === undefined ? '' : 'step ' + event.step + ' • ') + event.phase + ' • ' + event.message;
+      if (event.type === 'status') { this.busy = event.status !== 'ready'; this.status = event.status.toUpperCase(); if (!this.busy) this.activity = ''; }
+      if (event.type === 'state') this.setState(event.state);
+      if (event.type === 'run') {
+        const result = event.result;
+        this.addEntry(result.ok ? 'done' : result.status, result.ok ? result.answer : result.error.message, result.ok ? 'success' : 'error');
+        this.addEntry('run', result.steps + ' step' + (result.steps === 1 ? '' : 's') + ' • trace ' + result.traceId);
+      }
+    });
+  },
+  async refresh() {
+    try { this.applyEvents((await this.api('/api/events?since=' + this.sequence)).events || []); }
+    catch (error) { this.footer = 'Connection error: ' + error.message; }
+  },
+  async submitCommand(line) {
+    const result = await this.api('/api/input', { method: 'POST', body: JSON.stringify({ line }) });
+    if (result.message) this.addEntry('itemD', result.message, result.tone || 'text');
+    if (result.replays) result.replays.forEach((replay) => this.addEntry('replay', replay.traceId + '  ' + replay.modifiedAt));
+    if (result.replay && result.replay.ok) this.addEntry('replay ' + result.replay.traceId, JSON.stringify(result.replay.events, null, 2));
+  },
+  async sendLine() {
+    const line = this.input.trim();
+    if (!line || this.busy) return;
     if (line === '/clear' || line === '/new') {
-      transcript.innerHTML = '';
-      addEntry('', line === '/new' ? 'New session started. Active configuration retained.' : 'Transcript cleared.', 'text');
-      input.value = '';
+      this.entries = [];
+      this.addEntry('', line === '/new' ? 'New session started. Active configuration retained.' : 'Transcript cleared.');
+      this.input = '';
       return;
     }
     if (line === '/theme' || line === '/theme light' || line === '/theme dark') {
-      document.body.classList.toggle('light', line === '/theme light' || (line === '/theme' && !document.body.classList.contains('light')));
-      input.value = '';
+      this.theme = line === '/theme light' ? 'light' : line === '/theme dark' ? 'dark' : this.theme === 'dark' ? 'light' : 'dark';
+      this.input = '';
       return;
     }
-    if (line === '/reasoning on') showingReasoning = true;
-    if (line === '/reasoning off') showingReasoning = false;
-    addEntry(line.startsWith('!') ? 'shell' : line.startsWith('/') ? 'command' : 'you', line, line.startsWith('/') ? 'text' : 'user');
-    input.value = '';
+    if (line === '/reasoning on') this.showingReasoning = true;
+    if (line === '/reasoning off') this.showingReasoning = false;
+    this.addEntry(line.startsWith('!') ? 'shell' : line.startsWith('/') ? 'command' : 'you', line, line.startsWith('/') ? 'text' : 'user');
+    this.input = '';
+    try { await this.submitCommand(line); }
+    catch (error) { this.addEntry('error', error.message, 'error'); }
+  },
+  async stopTask() { await this.api('/api/stop', { method: 'POST', body: '{}' }); },
+  async saveConfig() {
     try {
-      const result = await api('/api/input', { method: 'POST', body: JSON.stringify({ line }) });
-      if (result.message) addEntry('itemD', result.message, result.tone || 'text');
-      if (result.replays) result.replays.forEach((replay) => addEntry('replay', replay.traceId + '  ' + replay.modifiedAt, 'text'));
-      if (result.replay && result.replay.ok) addEntry('replay ' + result.replay.traceId, JSON.stringify(result.replay.events, null, 2), 'text');
-    } catch (error) { addEntry('error', error.message, 'error'); }
-  };
-  document.getElementById('composer').addEventListener('submit', (event) => { event.preventDefault(); void sendLine(input.value.trim()); });
-  stop.addEventListener('click', async () => { await api('/api/stop', { method: 'POST', body: '{}' }); });
-  document.getElementById('setup').addEventListener('click', () => void sendLine('/setup browser'));
-  document.getElementById('reload').addEventListener('click', () => void sendLine('/reload'));
-  document.getElementById('theme').addEventListener('click', () => document.body.classList.toggle('light'));
-  model.addEventListener('change', () => void sendLine('/model ' + model.value));
-  effort.addEventListener('change', () => void sendLine('/effort ' + effort.value));
-  const load = async () => {
+      if (this.model) await this.submitCommand('/model ' + this.model);
+      if (this.effort) await this.submitCommand('/effort ' + this.effort);
+      this.configOpen = false;
+    } catch (error) { this.addEntry('configuration error', error.message, 'error'); }
+  },
+  async openSetup() { this.configOpen = false; try { await this.submitCommand('/setup browser'); } catch (error) { this.addEntry('configuration error', error.message, 'error'); } },
+  async reloadConfig() { try { await this.submitCommand('/reload'); } catch (error) { this.addEntry('configuration error', error.message, 'error'); } },
+  toggleTheme() { this.theme = this.theme === 'dark' ? 'light' : 'dark'; },
+  async init() {
     try {
-      const data = await api('/api/state');
-      setState(data.state); model.innerHTML = data.models.map((item) => '<option value="' + item.id + '">' + item.displayName + '</option>').join(''); effort.innerHTML = data.efforts.map((item) => '<option value="' + item.id + '">' + item.displayName + '</option>').join(''); model.value = data.state.model; effort.value = data.state.effort;
-      addEntry('', 'itemD is ready. Type a task below, / for commands, or ! for shell.', 'text');
-      await refresh();
-    } catch (error) { addEntry('error', error.message, 'error'); }
-  };
-  void load(); setInterval(() => void refresh(), 500); input.focus();
-})();
+      const data = await this.api('/api/state');
+      this.setState(data.state); this.models = data.models; this.efforts = data.efforts; this.model = data.state.model; this.effort = data.state.effort;
+      this.addEntry('', 'itemD is ready. Type a task below, / for commands, or ! for shell.');
+      await this.refresh(); this.timer = setInterval(() => void this.refresh(), 500); this.$refs.input.focus();
+    } catch (error) { this.addEntry('error', error.message, 'error'); }
+  },
+});
 </script>
 </body>
 </html>`;
@@ -503,6 +521,30 @@ export async function runWeb(options: WebOptions): Promise<void> {
       signal: controller.signal,
       tools: active.webSearchProvider === undefined ? {} : { webSearchProvider: active.webSearchProvider },
       onEvent: async (event: AgentRunEvent) => emit({ type: "reasoning", step: event.step, text: event.text }),
+      onRuntimeEvent: (event: AgentRuntimeEvent): void => {
+        if (event.type === "activity") {
+          emit({
+            type: "activity",
+            phase: event.phase,
+            message: event.message,
+            ...(event.step === undefined ? {} : { step: event.step }),
+          });
+        } else if (event.type === "tool_started") {
+          emit({
+            type: "activity",
+            phase: "tool_started",
+            message: event.toolName,
+            step: event.step,
+          });
+        } else if (event.type === "tool_finished") {
+          emit({
+            type: "activity",
+            phase: event.result.ok ? "tool_finished" : "tool_failed",
+            message: event.toolName,
+            step: event.step,
+          });
+        }
+      },
     }).then((result) => emit({ type: "run", result })).catch((error: unknown) => emitLog(getErrorMessage(error), "itemD error  ", "error")).finally(() => {
       if (activeController === controller) activeController = null;
       busy = false; emit({ type: "status", status: "ready" }); emitState();

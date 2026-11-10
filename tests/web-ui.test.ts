@@ -70,6 +70,10 @@ describe("web UI", () => {
     expect(html).toContain("itemD — web workspace");
     expect(html).toContain("/assets/logo.png");
     expect(html).toContain("Describe a task");
+    expect(html).toContain("https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js");
+    expect(html).toContain("Configure");
+    expect(html).toContain("aria-labelledby=\"config-title\"");
+    expect(html).not.toContain("class=\"sidebar\"");
 
     const stateResponse = await fetch(withToken(browserUrl!, "/api/state"));
     expect(stateResponse.status).toBe(200);
