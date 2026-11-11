@@ -1,6 +1,6 @@
 # itemd
 
-<img src="/assets/retro-monkey.png" alt="Just one more commit" width="360" />
+<img src="/assets/Just_One_More_Commit.png" alt="Just one more commit" width="360" />
 
 itemd is a framework-light TypeScript and Node.js coding-agent harness that
 keeps the runtime around the model visible: model calls, tool requests,

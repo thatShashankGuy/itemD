@@ -32,7 +32,7 @@ import { openSessionStore, type Session } from "../session/store.ts";
 const DEFAULT_HOST = "127.0.0.1";
 const MAX_BODY_BYTES = 128 * 1024;
 const MAX_EVENTS = 400;
-const LOGO_NAME = "retro-monkey.png";
+const LOGO_NAME = "Just_One_More_Commit.png";
 
 type ActiveConfiguration = {
   configuration: ItemDConfiguration;
@@ -215,9 +215,7 @@ function pageHtml(token: string): string {
     body.light { --bg: #f6f8fa; --panel: #ffffff; --panel-2: #f0f2f4; --text: #1f2328; --muted: #59636e; --accent: #c62828; --success: #1a7f37; --warning: #9a6700; --error: #cf222e; --user: #b42318; --scrim: rgb(255 255 255 / .7); }
     .app { height: 100vh; min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
     header { display: flex; align-items: center; gap: .75rem; padding: .35rem .75rem; background: var(--bg); }
-    @keyframes monkey-bob { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-3px) rotate(1deg); } }
-    #logo { width: 64px; height: 56px; object-fit: contain; image-rendering: pixelated; transform-origin: 50% 100%; animation: monkey-bob 1.8s steps(4, end) infinite; }
-    @media (prefers-reduced-motion: reduce) { #logo { animation: none; } }
+    #logo { width: 64px; height: 56px; object-fit: contain; image-rendering: pixelated; }
     .brand { min-width: 0; flex: 1; color: var(--accent); font-weight: 700; }
     .status { color: var(--success); white-space: nowrap; }
     .status.running { color: var(--warning); }
