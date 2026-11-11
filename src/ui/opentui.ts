@@ -160,7 +160,7 @@ const KEYBOARD_HELP =
   "Mouse drag     Select and copy transcript text\n" +
   "Ctrl+C         Exit itemd";
 
-const LOGO_ASSET_NAME = "Just_One_More_Commit.png";
+const LOGO_ASSET_NAME = "retro-monkey.png";
 const MAX_REPLAY_CHOICES = 12;
 const REPLAY_EVENT_DELAY_MS = 120;
 const MAX_REPLAY_EVENT_CHARS = 20_000;
@@ -516,6 +516,19 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       logoFallback.visible = true;
     },
   });
+  let logoAnimationTimer: ReturnType<typeof setInterval> | null = null;
+  let logoAnimationPhase = 0;
+  const animateLogo = (): void => {
+    if (renderer.isDestroyed || !logo.visible) {
+      return;
+    }
+
+    const offsets = [0, -1, 0, 1] as const;
+    logo.translateY = offsets[logoAnimationPhase % offsets.length] ?? 0;
+    logoAnimationPhase += 1;
+    logo.requestRender();
+  };
+  logoAnimationTimer = setInterval(animateLogo, 450);
   const statusText = new TextRenderable(renderer, {
     id: "status",
     content: "READY",
@@ -2259,6 +2272,11 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     process.removeListener("SIGHUP", onShutdownSignal);
     stopLoader();
     stopElapsedTimer();
+
+    if (logoAnimationTimer !== null) {
+      clearInterval(logoAnimationTimer);
+      logoAnimationTimer = null;
+    }
 
     if (toastTimer !== null) {
       clearTimeout(toastTimer);
