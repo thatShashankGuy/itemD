@@ -216,7 +216,7 @@ function pageHtml(token: string): string {
     .app { height: 100vh; min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
     header { display: flex; align-items: center; gap: .75rem; padding: .35rem .75rem; background: var(--bg); }
     @keyframes monkey-bob { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-3px) rotate(1deg); } }
-    #logo { width: 64px; height: 56px; object-fit: contain; image-rendering: pixelated; transform-origin: 50% 100%; animation: monkey-bob 1.8s steps(4, end) infinite; }
+    #logo { width: 64px; height: 56px; object-fit: contain; background: transparent; image-rendering: pixelated; transform-origin: 50% 100%; animation: monkey-bob 1.8s steps(4, end) infinite; }
     @media (prefers-reduced-motion: reduce) { #logo { animation: none; } }
     .brand { min-width: 0; flex: 1; color: var(--accent); font-weight: 700; }
     .status { color: var(--success); white-space: nowrap; }
