@@ -1,8 +1,8 @@
-# itemD
+# itemd
 
 <img src="/assets/Just_One_More_Commit.png" alt="Just one more commit" width="360" />
 
-itemD is a framework-light TypeScript and Node.js coding-agent harness that
+itemd is a framework-light TypeScript and Node.js coding-agent harness that
 keeps the runtime around the model visible: model calls, tool requests,
 validation, command execution, workspace boundaries, failures, step limits, and
 traces.
@@ -16,18 +16,18 @@ Choose one of these installation paths:
 - **Standalone release:** no Node.js, Bun, npm, or source checkout is required.
 - **Development checkout:** requires Node.js 26.4 or newer and npm.
 
-In both cases, itemD requires a DeepSeek API key.
+In both cases, itemd requires a DeepSeek API key.
 
 ### Standalone release
 
 Download the asset for your platform from the
-[latest GitHub Release](https://github.com/thatShashankGuy/itemD/releases/latest).
+[latest GitHub Release](https://github.com/thatShashankGuy/itemd/releases/latest).
 
 Linux x64:
 
 ```bash
 mkdir -p "$HOME/.local/bin"
-curl -fL https://github.com/thatShashankGuy/itemD/releases/latest/download/itemd-linux-x64 \
+curl -fL https://github.com/thatShashankGuy/itemd/releases/latest/download/itemd-linux-x64 \
   -o "$HOME/.local/bin/itemd"
 chmod +x "$HOME/.local/bin/itemd"
 export PATH="$HOME/.local/bin:$PATH"
@@ -45,7 +45,7 @@ macOS ARM64 (Apple Silicon):
 
 ```bash
 mkdir -p "$HOME/.local/bin"
-curl -fL https://github.com/thatShashankGuy/itemD/releases/latest/download/itemd-macos-arm64 \
+curl -fL https://github.com/thatShashankGuy/itemd/releases/latest/download/itemd-macos-arm64 \
   -o "$HOME/.local/bin/itemd"
 chmod +x "$HOME/.local/bin/itemd"
 export PATH="$HOME/.local/bin:$PATH"
@@ -63,7 +63,7 @@ Windows x64 PowerShell:
 $installDir = Join-Path $env:LOCALAPPDATA "itemd"
 New-Item -ItemType Directory -Force $installDir | Out-Null
 Invoke-WebRequest `
-  -Uri "https://github.com/thatShashankGuy/itemD/releases/latest/download/itemd-windows-x64.exe" `
+  -Uri "https://github.com/thatShashankGuy/itemd/releases/latest/download/itemd-windows-x64.exe" `
   -OutFile (Join-Path $installDir "itemd.exe")
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
 [Environment]::SetEnvironmentVariable("Path", "$userPath;$installDir", "User")
@@ -105,15 +105,15 @@ npm run check
 
 ### First launch and configuration
 
-When no usable configuration is found, itemD starts a short-lived local setup
+When no usable configuration is found, itemd starts a short-lived local setup
 page in your browser. It collects the DeepSeek model, reasoning effort, model
 API key, and optional Serper API key, then returns you to the OpenTUI session.
 The page listens only on `127.0.0.1`, uses a random one-time URL token, and
 does not put credentials in the URL or logs. The configuration is stored in
-the user-level itemD configuration directory.
+the user-level itemd configuration directory.
 
 You can also set `DEEPSEEK_API_KEY` and `SERPER_API_KEY` in the environment
-before starting itemD; environment settings override stored values. Use
+before starting itemd; environment settings override stored values. Use
 `/setup browser` to reopen the local setup page from an active session.
 
 ## Usage
@@ -130,17 +130,17 @@ To use the browser interface instead of OpenTUI, run:
 itemd --web
 ```
 
-This starts a loopback-only web server, opens the full itemD workspace in your
-default browser, and keeps the server alive until itemD exits. The web session
+This starts a loopback-only web server, opens the full itemd workspace in your
+default browser, and keeps the server alive until itemd exits. The web session
 uses a random URL token; it is intended for the local machine and should not
 be exposed through a proxy or shared network address.
 
 For a development checkout, use `npm start` or `npm run tui`. On first use,
-itemD opens the local browser setup page described above. Enter a coding task
+itemd opens the local browser setup page described above. Enter a coding task
 in the bottom input:
 
 ```text
-itemD> inspect the failing tests and make the smallest focused fix
+itemd> inspect the failing tests and make the smallest focused fix
 ```
 
 Each submitted task starts an independent agent run with its own history and trace.
@@ -161,7 +161,7 @@ run-start trace event.
 Type `$editor` in the terminal composer to open the configured default editor.
 `VISUAL` takes precedence over `EDITOR`; editor values may contain quoted
 arguments (for example, `code --wait`) and are executed without a shell. If
-neither variable is set, itemD uses `vi` on Unix-like systems and `notepad.exe`
+neither variable is set, itemd uses `vi` on Unix-like systems and `notepad.exe`
 on Windows. The editor writes a private temporary Markdown file, and its
 contents are loaded back into the composer without being submitted. Empty
 messages, editor failures, and cancellation leave the composer usable. The web
@@ -201,7 +201,7 @@ light terminal theme, `/theme dark` switches back, and `/theme` toggles the
 current theme. Theme changes affect presentation only; the active provider,
 model, credentials, and agent state are unchanged.
 
-The saved configuration lives outside the workspace in the user-level itemD
+The saved configuration lives outside the workspace in the user-level itemd
 configuration directory (or at `ITEMD_CONFIG_PATH`) and is written with
 user-only permissions where supported. It contains the API key, so treat that
 file as a credential. `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`,
@@ -352,14 +352,14 @@ model_call
 run_end
 ```
 
-Trace and itemD runtime directories are checked for symlink escapes. Replay accepts only itemD-generated UUIDs and verifies that the target is a regular file inside the trace directory.
+Trace and itemd runtime directories are checked for symlink escapes. Replay accepts only itemd-generated UUIDs and verifies that the target is a regular file inside the trace directory.
 
 Traces are excluded from Git, but they can contain task text, model reasoning, file contents, command output, and errors. Treat them as sensitive local debugging artifacts.
 
 ## Repository layout
 
 ```text
-itemD/
+itemd/
 ├── main.ts                         # OpenTUI CLI entrypoint and public exports
 ├── src/
 │   ├── agent/

@@ -90,7 +90,7 @@ describe("configuration paths and reads", () => {
       ok: false,
       error: {
         code: "CONFIG_PARSE_FAILED",
-        message: "The itemD configuration is not valid JSON",
+        message: "The itemd configuration is not valid JSON",
       },
       path: brokenPath,
     });

@@ -31,13 +31,13 @@ describe("standalone lifecycle commands", () => {
       updateStandalone({ standalone: false }),
     ).resolves.toEqual({
       ok: false,
-      error: "--update is available only in a standalone itemD release.",
+      error: "--update is available only in a standalone itemd release.",
     });
     await expect(
       uninstallStandalone({ standalone: false }),
     ).resolves.toEqual({
       ok: false,
-      error: "--uninstall is available only in a standalone itemD release.",
+      error: "--uninstall is available only in a standalone itemd release.",
     });
   });
 });

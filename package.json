@@ -15,12 +15,12 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/thatShashankGuy/itemD.git"
+    "url": "git+https://github.com/thatShashankGuy/itemd.git"
   },
   "bugs": {
-    "url": "https://github.com/thatShashankGuy/itemD/issues"
+    "url": "https://github.com/thatShashankGuy/itemd/issues"
   },
-  "homepage": "https://github.com/thatShashankGuy/itemD#readme",
+  "homepage": "https://github.com/thatShashankGuy/itemd#readme",
   "devDependencies": {
     "@types/node": "^26.6.6",
     "typescript": "^7.0.2",

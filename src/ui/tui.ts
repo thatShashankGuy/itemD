@@ -54,7 +54,7 @@ export {
   type TuiIO,
 } from "./setup.ts";
 
-const PROMPT = "itemD> ";
+const PROMPT = "itemd> ";
 
 function writeLine(io: TuiIO, text = ""): void {
   io.write(`${text}\n`);
@@ -380,7 +380,7 @@ export async function runTui(
   const io = options.io;
   const shellApproval = createTuiShellApproval(io);
 
-  writeLine(io, "itemD — Minimal Coding Harness");
+  writeLine(io, "itemd — Minimal Coding Harness");
   writeLine(io, `workspace: ${workspaceRoot}`);
 
   let active = await resolveActiveConfiguration(io, configOptions);
@@ -674,7 +674,7 @@ export async function runTui(
 
         printAgentResult(io, result, streamedModelText.length > 0);
       } catch (error: unknown) {
-        writeLine(io, `[itemD error] ${getErrorMessage(error)}`);
+        writeLine(io, `[itemd error] ${getErrorMessage(error)}`);
         writeLine(io);
       }
     }

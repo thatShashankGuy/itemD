@@ -67,7 +67,7 @@ describe("web UI", () => {
     const page = await fetch(browserUrl!);
     const html = await page.text();
     expect(page.status).toBe(200);
-    expect(html).toContain("itemD — web workspace");
+    expect(html).toContain("itemd — web workspace");
     expect(html).toContain("/assets/logo.png");
     expect(html).toContain("Describe a task");
     expect(html).toContain("Web view is experimental.");

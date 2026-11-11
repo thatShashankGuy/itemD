@@ -201,7 +201,7 @@ function pageHtml(token: string): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>itemD — web workspace</title>
+  <title>itemd — web workspace</title>
   <style>
     :root { color-scheme: dark; --bg: #0d1117; --panel: #161b22; --panel-2: #1c2128; --text: #f0f3f6; --muted: #8b949e; --accent: #f04444; --success: #56d364; --warning: #e3b341; --error: #ff7b72; --user: #ff7b72; --scrim: rgb(0 0 0 / .55); }
     * { box-sizing: border-box; }
@@ -256,8 +256,8 @@ function pageHtml(token: string): string {
 <body x-data="itemdApp()" :class="theme === 'light' ? 'light' : ''" @keydown.escape.window="handleEscape()">
 <div class="app">
   <header>
-    <img id="logo" src="/assets/logo.png?token=${encodeURIComponent(token)}" alt="itemD logo">
-    <div class="brand">itemD</div>
+    <img id="logo" src="/assets/logo.png?token=${encodeURIComponent(token)}" alt="itemd logo">
+    <div class="brand">itemd</div>
     <button type="button" @click="configOpen = true">Configure</button>
     <div class="status" :class="{ running: busy }" x-text="status"></div>
   </header>
@@ -336,7 +336,7 @@ window.itemdApp = () => ({
     { usage: '/clear', description: 'Clear the transcript', requiresArgument: false },
     { usage: '/new', description: 'Start a new session', requiresArgument: false },
     { usage: '/theme', description: 'Switch light or dark theme', requiresArgument: false },
-    { usage: '/exit', description: 'Exit itemD', requiresArgument: false },
+    { usage: '/exit', description: 'Exit itemd', requiresArgument: false },
   ],
   entries: [], showingReasoning: false, configOpen: false, models: [], efforts: [], model: '', effort: '',
   state: { provider: '', model: '', effort: '', webSearch: false, workspace: '', busy: false }, timer: null,
@@ -444,7 +444,7 @@ window.itemdApp = () => ({
   },
   async submitCommand(line) {
     const result = await this.api('/api/input', { method: 'POST', body: JSON.stringify({ line }) });
-    if (result.message) this.addEntry('itemD', result.message, result.tone || 'text');
+    if (result.message) this.addEntry('itemd', result.message, result.tone || 'text');
     if (result.replays) this.openPicker('Recorded runs', result.replays.map((replay) => ({ id: replay.traceId, action: '/replay', label: replay.traceId, detail: replay.modifiedAt })));
     if (result.sessions) this.openPicker('Recent sessions', result.sessions.map((session) => ({ id: session.id, action: '/resume', label: session.id.slice(0, 8), detail: session.updatedAt })));
     if (result.messages && result.session) {
@@ -525,7 +525,7 @@ window.itemdApp = () => ({
     try {
       const data = await this.api('/api/state');
       this.setState(data.state); this.models = data.models; this.efforts = data.efforts; this.model = data.state.model; this.effort = data.state.effort;
-      this.addEntry('', 'itemD is ready. Type a task below, / for commands, or ! for shell.');
+      this.addEntry('', 'itemd is ready. Type a task below, / for commands, or ! for shell.');
       await this.refresh(); this.timer = setInterval(() => void this.refresh(), 500); this.$refs.input.focus();
     } catch (error) { this.addEntry('error', error.message, 'error'); }
   },
@@ -596,7 +596,7 @@ export async function runWeb(options: WebOptions): Promise<void> {
     if (events.length > MAX_EVENTS) events = events.slice(-MAX_EVENTS);
   };
   const emitState = (): void => emit({ type: "state", state: configurationState(active, options.workspaceRoot, busy) });
-  const emitLog = (message: string, label = "itemD  ", tone: WebTone = "text"): void => emit({ type: "log", label, message, tone });
+  const emitLog = (message: string, label = "itemd  ", tone: WebTone = "text"): void => emit({ type: "log", label, message, tone });
   const loadReplacement = async (): Promise<boolean> => {
     const replacement = await loadActiveConfiguration(config);
     if (!replacement.ok) {
@@ -699,7 +699,7 @@ export async function runWeb(options: WebOptions): Promise<void> {
     return { message: `Unknown command: ${command ?? line}. Type /help for available commands.`, tone: "warning" };
   };
   const startTask = (task: string): void => {
-    if (busy) { emitLog("itemD is already running a task.", "busy  ", "warning"); return; }
+    if (busy) { emitLog("itemd is already running a task.", "busy  ", "warning"); return; }
     sessionContext = sessionService.appendMessage(sessionContext.session.id, { role: "user", content: task });
     busy = true; activeController = new AbortController(); emit({ type: "status", status: "running" }); emitState();
     const controller = activeController;
@@ -735,13 +735,13 @@ export async function runWeb(options: WebOptions): Promise<void> {
           });
         }
       },
-    }).then((result) => emit({ type: "run", result })).catch((error: unknown) => emitLog(getErrorMessage(error), "itemD error  ", "error")).finally(() => {
+    }).then((result) => emit({ type: "run", result })).catch((error: unknown) => emitLog(getErrorMessage(error), "itemd error  ", "error")).finally(() => {
       if (activeController === controller) activeController = null;
       busy = false; emit({ type: "status", status: "ready" }); emitState();
     });
   };
   const startShell = (line: string): void => {
-    if (busy) { emitLog("itemD is already busy.", "busy  ", "warning"); return; }
+    if (busy) { emitLog("itemd is already busy.", "busy  ", "warning"); return; }
     busy = true; activeController = new AbortController(); emit({ type: "status", status: "running" }); emitState();
     const controller = activeController;
     void executePrefixedShellCommand(line.slice(1).trim(), options.workspaceRoot, controller.signal).then((result) => emitLog(formatShellResult(line.slice(1).trim(), result), "shell\n", result.ok ? "text" : "error")).catch((error: unknown) => emitLog(getErrorMessage(error), "shell error  ", "error")).finally(() => {
@@ -805,7 +805,7 @@ export async function runWeb(options: WebOptions): Promise<void> {
       const port = typeof address === "object" && address !== null ? address.port : undefined;
       if (port === undefined) { reject(new Error("Unable to determine web UI address.")); return; }
       const url = `http://${host}:${port}/?token=${encodeURIComponent(token)}`;
-      void openBrowser(url).catch(() => process.stdout.write(`itemD web UI: ${url}\n`));
+      void openBrowser(url).catch(() => process.stdout.write(`itemd web UI: ${url}\n`));
     });
   });
 }

@@ -1,8 +1,8 @@
-# itemD — Agent Instructions
+# itemd — Agent Instructions
 
 ## Mission
 
-Build itemD, a framework-light coding harness in TypeScript that makes the runtime around the model explicit: tool calls, command execution, permissions, workspace boundaries, context, Git, failures, tracing, and evaluation.
+Build itemd, a framework-light coding harness in TypeScript that makes the runtime around the model explicit: tool calls, command execution, permissions, workspace boundaries, context, Git, failures, tracing, and evaluation.
 
 The north-star workflow is:
 
@@ -114,7 +114,7 @@ DeepSeek setup initially supports:
 - TUI first-run setup may collect and persist an API key only after an enabled
   provider, valid model, and valid effort have been selected.
 - Hide or mask API-key input. Never echo the key back in a confirmation summary.
-- Prefer a user-level itemD configuration directory over the target workspace.
+- Prefer a user-level itemd configuration directory over the target workspace.
 - Support an explicit config-path override so tests use a temporary directory
   and never touch the developer's real configuration.
 - Parse configuration as `unknown` and validate every field before use.
@@ -335,7 +335,7 @@ If a requested change jumps ahead in the roadmap, implement only the dependencie
 
 ## First Milestone Definition of Done
 
-The first itemD milestone is complete only when:
+The first itemd milestone is complete only when:
 
 - the CLI accepts a natural-language task;
 - the harness can read and search workspace files;

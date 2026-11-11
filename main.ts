@@ -38,7 +38,7 @@ function printHelp(): void {
       "  itemd --help      Show this help",
       "  itemd --version   Show the installed version",
       "  itemd --update    Update to the latest release",
-      "  itemd --uninstall Remove the standalone itemD binary",
+      "  itemd --uninstall Remove the standalone itemd binary",
     ].join("\n"),
   );
 }
@@ -108,18 +108,18 @@ if (import.meta.main) {
   const tuiOptions = parseTuiOptions(args);
 
   if (args.length === 1 && (command === "--version" || command === "-V")) {
-    console.log(`itemD v${packageMetadata.version}`);
+    console.log(`itemd v${packageMetadata.version}`);
   } else if (args.length === 1 && (command === "--help" || command === "-h")) {
     printHelp();
   } else if (args.length === 1 && command === "--update") {
     const result = await updateStandalone();
-    console.log(result.ok ? result.message : `[itemD error] ${result.error}`);
+    console.log(result.ok ? result.message : `[itemd error] ${result.error}`);
     if (!result.ok) {
       process.exitCode = 1;
     }
   } else if (args.length === 1 && command === "--uninstall") {
     const result = await uninstallStandalone();
-    console.log(result.ok ? result.message : `[itemD error] ${result.error}`);
+    console.log(result.ok ? result.message : `[itemd error] ${result.error}`);
     if (!result.ok) {
       process.exitCode = 1;
     }

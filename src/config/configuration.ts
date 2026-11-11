@@ -247,7 +247,7 @@ export async function readConfiguration(
       ok: false,
       error: {
         code: "CONFIG_READ_FAILED",
-        message: "Unable to read the itemD configuration",
+        message: "Unable to read the itemd configuration",
       },
       path,
     };
@@ -262,7 +262,7 @@ export async function readConfiguration(
       ok: false,
       error: {
         code: "CONFIG_PARSE_FAILED",
-        message: "The itemD configuration is not valid JSON",
+        message: "The itemd configuration is not valid JSON",
       },
       path,
     };
@@ -320,7 +320,7 @@ export async function writeConfiguration(
       ok: false,
       error: {
         code: "CONFIG_WRITE_FAILED",
-        message: "Unable to save the itemD configuration",
+        message: "Unable to save the itemd configuration",
       },
       path,
     };

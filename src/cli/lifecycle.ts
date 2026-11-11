@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import { getErrorMessage, isStandaloneExecutable } from "../shared/runtime.ts";
 
 const RELEASE_BASE_URL =
-  "https://github.com/thatShashankGuy/itemD/releases/latest/download";
+  "https://github.com/thatShashankGuy/itemd/releases/latest/download";
 
 export type ReleaseAsset = {
   name: string;
@@ -95,7 +95,7 @@ export async function updateStandalone(
   if (!isStandalone(options)) {
     return {
       ok: false,
-      error: "--update is available only in a standalone itemD release.",
+      error: "--update is available only in a standalone itemd release.",
     };
   }
 
@@ -106,7 +106,7 @@ export async function updateStandalone(
   if (asset === undefined) {
     return {
       ok: false,
-      error: `No itemD release is available for ${platform}/${arch}.`,
+      error: `No itemd release is available for ${platform}/${arch}.`,
     };
   }
 
@@ -123,7 +123,7 @@ export async function updateStandalone(
     if (!response.ok) {
       return {
         ok: false,
-        error: `Latest itemD release download failed with HTTP ${response.status}.`,
+        error: `Latest itemd release download failed with HTTP ${response.status}.`,
       };
     }
 
@@ -132,7 +132,7 @@ export async function updateStandalone(
     if (contents.byteLength === 0) {
       return {
         ok: false,
-        error: "Latest itemD release download was empty.",
+        error: "Latest itemd release download was empty.",
       };
     }
 
@@ -153,14 +153,14 @@ export async function updateStandalone(
       ok: true,
       message:
         platform === "win32"
-          ? "itemD update downloaded. Restart itemD to use the new version."
-          : "itemD updated. Restart itemD to use the new version.",
+          ? "itemd update downloaded. Restart itemd to use the new version."
+          : "itemd updated. Restart itemd to use the new version.",
     };
   } catch (error: unknown) {
     await removeTemporaryFile(temporaryPath);
     return {
       ok: false,
-      error: `Unable to update itemD: ${getErrorMessage(error)}`,
+      error: `Unable to update itemd: ${getErrorMessage(error)}`,
     };
   }
 }
@@ -171,7 +171,7 @@ export async function uninstallStandalone(
   if (!isStandalone(options)) {
     return {
       ok: false,
-      error: "--uninstall is available only in a standalone itemD release.",
+      error: "--uninstall is available only in a standalone itemd release.",
     };
   }
 
@@ -187,12 +187,12 @@ export async function uninstallStandalone(
     return {
       ok: true,
       message:
-        "itemD uninstalled. Your saved configuration and workspace traces were preserved.",
+        "itemd uninstalled. Your saved configuration and workspace traces were preserved.",
     };
   } catch (error: unknown) {
     return {
       ok: false,
-      error: `Unable to uninstall itemD: ${getErrorMessage(error)}`,
+      error: `Unable to uninstall itemd: ${getErrorMessage(error)}`,
     };
   }
 }

@@ -83,7 +83,7 @@ export const TUI_COMMANDS = [
   {
     name: "/exit",
     usage: "/exit",
-    description: "Exit itemD",
+    description: "Exit itemd",
   },
 ] as const satisfies readonly TuiCommand[];
 

@@ -36,7 +36,7 @@ describe("TUI feedback", () => {
   });
 
   test("formats copy feedback and exposes loader frames", () => {
-    expect(copiedCharactersMessage("itemD")).toBe("5 chars copied");
+    expect(copiedCharactersMessage("itemd")).toBe("5 chars copied");
     expect(copiedCharactersMessage("🙂")).toBe("1 chars copied");
     expect(new Set(LOADER_FRAMES).size).toBe(LOADER_FRAMES.length);
     expect(LOADER_FRAMES.length).toBeGreaterThan(1);

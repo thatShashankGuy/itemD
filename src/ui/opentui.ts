@@ -158,7 +158,7 @@ const KEYBOARD_HELP =
   "PgUp/PgDn      Scroll the transcript\n" +
   "Ctrl+Up/Down   Fine-scroll the transcript\n" +
   "Mouse drag     Select and copy transcript text\n" +
-  "Ctrl+C         Exit itemD";
+  "Ctrl+C         Exit itemd";
 
 const LOGO_ASSET_NAME = "Just_One_More_Commit.png";
 const MAX_REPLAY_CHOICES = 12;
@@ -497,7 +497,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   });
   const logoFallback = new ASCIIFontRenderable(renderer, {
     id: "logo-fallback",
-    text: "itemD",
+    text: "itemd",
     font: "tiny",
     color: COLORS.accent,
     selectable: false,
@@ -910,7 +910,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     approvalPanel.visible = false;
     approvalText.content = "";
     taskInput.setText("");
-    taskInput.placeholder = "itemD is working…";
+    taskInput.placeholder = "itemd is working…";
     footer.content = DEFAULT_FOOTER_TEXT;
     footer.fg = COLORS.muted;
     pending.resolve(decision);
@@ -1009,7 +1009,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
 
   const clearTranscript = (): void => {
     resetTranscript(
-      "itemD is ready. Type / for commands, ! for shell, or enter a coding task.",
+      "itemd is ready. Type / for commands, ! for shell, or enter a coding task.",
     );
   };
 
@@ -1292,7 +1292,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
 
     if (value) {
       taskInput.blur();
-      taskInput.placeholder = "itemD is working…";
+      taskInput.placeholder = "itemd is working…";
     } else if (!renderer.isDestroyed) {
       taskInput.placeholder = "Describe a task or type / for commands";
       taskInput.focus();
@@ -1958,7 +1958,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
 
       appendLog("you  ", line, COLORS.user);
       appendLog(
-        "itemD  ",
+        "itemd  ",
         `Running with ${active.configuration.model}…`,
         COLORS.muted,
       );
@@ -2029,7 +2029,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
         COLORS.muted,
       );
     } catch (error: unknown) {
-      appendLog("itemD error  ", getErrorMessage(error), COLORS.error);
+      appendLog("itemd error  ", getErrorMessage(error), COLORS.error);
     } finally {
       if (activeRunController === runController) {
         activeRunController = null;

@@ -85,7 +85,7 @@ function page(title: string, body: string, theme: BrowserTheme = "dark"): string
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHtml(title)} — itemD</title>
+  <title>${escapeHtml(title)} — itemd</title>
   <style>
     :root { color-scheme: ${theme}; font-family: ui-sans-serif, system-ui, sans-serif; }
     body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: ${palette.background}; color: ${palette.text}; }
@@ -134,7 +134,7 @@ function setupForm(
     )
     .join("");
   const modelKeyHint = stored === null
-    ? "Required. Keys are stored only in the user-level itemD configuration."
+    ? "Required. Keys are stored only in the user-level itemd configuration."
     : "Leave blank to keep the saved key. Keys are never shown back to you.";
   const serperKeyHint = stored?.webSearch?.serperApiKey
     ? "Leave blank to keep the saved key."
@@ -143,8 +143,8 @@ function setupForm(
   return page(
     "Configuration",
     `${error === undefined ? "" : `<p class="error">${escapeHtml(error)}</p>`}
-    <h1>Configure itemD</h1>
-    <p>Choose the model settings and enter credentials. Return to the itemD terminal when you save.</p>
+    <h1>Configure itemd</h1>
+    <p>Choose the model settings and enter credentials. Return to the itemd terminal when you save.</p>
     <form method="post" action="/?token=${encodeURIComponent(token)}">
       <input type="hidden" name="token" value="${escapeHtml(token)}">
       <label for="model">Model</label>
@@ -247,7 +247,7 @@ export async function runBrowserSetup(
       }
 
       if (requestUrl.searchParams.get("cancel") === "1") {
-        sendHtml(response, 200, page("Cancelled", "<h1>Setup cancelled</h1><p>You can close this tab and return to itemD.</p>", theme));
+        sendHtml(response, 200, page("Cancelled", "<h1>Setup cancelled</h1><p>You can close this tab and return to itemd.</p>", theme));
         closeServer();
         finish({ status: "cancelled" });
         return;
@@ -303,7 +303,7 @@ export async function runBrowserSetup(
           return;
         }
 
-        sendHtml(response, 200, page("Saved", "<h1>Configuration saved</h1><p>You can close this tab and return to itemD.</p>", theme));
+        sendHtml(response, 200, page("Saved", "<h1>Configuration saved</h1><p>You can close this tab and return to itemd.</p>", theme));
         closeServer();
         finish({ status: "saved" });
       } catch {
@@ -354,7 +354,7 @@ export async function runBrowserSetup(
         closeServer();
         finish({
           status: "failed",
-          message: "Unable to open the browser for itemD setup.",
+          message: "Unable to open the browser for itemd setup.",
         });
       });
     });

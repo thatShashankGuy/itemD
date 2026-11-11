@@ -232,7 +232,7 @@ export async function runSetup(
   const stored = storedResult.ok ? storedResult.configuration : null;
   const isReconfiguration = stored !== null;
 
-  writeLine(io, isReconfiguration ? "Update itemD configuration" : "Set up itemD");
+  writeLine(io, isReconfiguration ? "Update itemd configuration" : "Set up itemd");
   if (isReconfiguration) {
     writeLine(io, "Press Enter to keep the current choice or credential.");
   } else {
