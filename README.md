@@ -234,47 +234,72 @@ uploads all three binaries. If that tag already exists, no duplicate release
 is created. The binaries start the interactive OpenTUI interface; run
 `itemd --help` for the harmless smoke-test command.
 
+## Recent feature map
+
+The recent runtime and UI work is organized around explicit boundaries rather
+than a framework layer:
+
+| Area | What it adds | Primary implementation |
+| --- | --- | --- |
+| OpenTUI runtime | Streaming model/tool activity, shell approval panels, session navigation, and responsive context panels | `src/ui/opentui.ts`, `src/ui/opentui-activity.ts`, `src/agent/events.ts` |
+| Sessions and replay | Resumable sessions, persisted message history, `/sessions`, `/resume`, `/replays`, and read-only replay | `src/session/`, `src/telemetry/trace.ts`, `src/session/presentation.ts` |
+| Web workspace | Experimental browser workspace with multiline input, slash-command completion, theme/configuration controls, session pickers, and replay | `src/ui/web.ts`, `src/config/browser-setup.ts` |
+| Direct answers | Informational questions can use a tool-free interaction mode; workspace-dependent questions retain the agent loop | `src/agent/interaction-policy.ts`, `src/agent/runner.ts`, `src/model/adapters/deepseek.ts` |
+| Editor composer | `$editor` opens `VISUAL` or `EDITOR`, loads saved Markdown into the terminal composer, and never submits automatically | `src/ui/editor.ts`, `src/ui/opentui.ts` |
+| Provider setup | Validated DeepSeek model/effort selection, masked setup input, environment overrides, and user-level configuration | `src/model/catalog.ts`, `src/config/configuration.ts`, `src/ui/setup.ts` |
+| Release hardening | Platform-specific `node-pty` assets, version-bump verification, and protected release workflows | `.github/workflows/release.yml`, `.github/workflows/protect-release-workflow.yml` |
+
 ## Agent flow
 
 ```mermaid
-flowchart TD
-    User["Natural-language task"] --> Entry{"Entry point"}
-    Entry -->|Installed CLI| TUI["main.ts OpenTUI entrypoint"]
-    Entry -->|Testing API| CLI["Agent runner exports"]
+flowchart LR
+    User["Natural-language task"] --> Surface{"User surface"}
+    Surface --> TUI["OpenTUI / terminal TUI"]
+    Surface --> Web["Experimental web workspace"]
 
-    CLI --> Agent["Agent loop"]
-    TUI --> Agent
+    TUI --> Composer{"Composer input"}
+    Web --> Composer
+    Composer -->|"$editor"| Editor["Private Markdown editor file"]
+    Composer -->|"Task"| Runner["Provider-neutral agent runner"]
 
-    Agent -->|"History + tool definitions"| Model["DeepSeek adapter"]
-    Model --> Decision{"Model action"}
+    Runner --> Mode{"Interaction policy"}
+    Mode -->|"Informational question"| Adapter["DeepSeek adapter without tools"]
+    Mode -->|"Workspace/action task"| History["History and runtime context"]
+    History --> Adapter
+    Adapter --> Action{"Model response"}
 
-    Decision -->|"Final text"| Done{"Starts with DONE:?"}
-    Done -->|No| Continue["Append continuation reminder"]
-    Continue --> Agent
-    Done -->|Yes| Result["Return answer, steps, and trace ID"]
+    Action -->|"Final answer"| Result["Answer, steps, trace ID"]
+    Action -->|"Tool calls"| Dispatcher["Typed tool dispatcher"]
+    Dispatcher --> Files["Files + workspace boundaries"]
+    Dispatcher --> Shell["Shell policy + approval"]
+    Dispatcher --> WebTools["Web policy + search provider"]
+    Files --> Observation["Structured observation"]
+    Shell --> Observation
+    WebTools --> Observation
+    Observation --> History
 
-    Decision -->|"One or more tool calls"| Validate["Validate unknown arguments"]
-    Validate -->|Invalid| Observation["Structured tool failure"]
-    Validate -->|File tool| Workspace["Workspace and symlink checks"]
-    Validate -->|Shell tool| Policy["Command allowlist policy"]
-
-    Workspace --> FileTool["Read, write, exact edit, list, search, or delete"]
-    Policy --> Command["Bounded command runner"]
-    FileTool --> Observation
-    Command --> Observation
-    Observation -->|"Append every result to history"| Agent
-
-    Agent -.->|"run/model events"| Trace["JSONL trace"]
-    Observation -.->|"tool event"| Trace
-    Result -.->|"run_end"| Trace
-
-    Replay["Replay command"] -->|"Read only"| Trace
-    Trace --> Display["Recorded events"]
+    Runner -.->|"Streaming and activity events"| Events["Runtime event stream"]
+    Events --> TUI
+    Events --> Web
+    Runner -.->|"Calls, tools, results, errors"| Trace["JSONL trace"]
+    Result -.-> Trace
+    Replay["/replays and /replay"] -->|"Read only"| Trace
 ```
 
-The agent loop owns history, the 50-step limit, and completion. The model adapter only translates between DeepSeek and internal actions. Tool arguments stay `unknown` until validation, and deterministic workspace or command policy runs before execution. Every success and expected failure becomes an observation that the model can use on its next turn.
+The agent runner owns history, the configured hard step limit, completion, and
+cancellation. The interaction policy selects the tool-free path only when the
+answer is available from the prompt and known context; action-oriented or
+workspace-dependent requests use the normal dispatcher. The model adapter only
+translates between DeepSeek and internal actions.
 
-The original task remains in history for the whole run. DeepSeek tool-call IDs and reasoning content are preserved across turns. Replay follows a separate read-only path and never enters the model or tool-execution flow.
+Tool arguments stay `unknown` until validation, and deterministic workspace,
+shell, approval, and web policies run before execution. Every success and
+expected failure becomes an observation that the model can use on its next turn.
+
+The original task remains in history for the whole run. DeepSeek tool-call IDs
+and reasoning content are preserved across turns. Session persistence stores
+canonical messages separately from telemetry, while replay follows a separate
+read-only path and never enters the model or tool-execution flow.
 
 ## Model-facing tools
 
@@ -352,7 +377,9 @@ model_call
 run_end
 ```
 
-Trace and itemd runtime directories are checked for symlink escapes. Replay accepts only itemd-generated UUIDs and verifies that the target is a regular file inside the trace directory.
+Trace and itemd runtime directories are checked for symlink escapes. Replay
+accepts only itemd-generated UUIDs and verifies that the target is a regular
+file inside the trace directory.
 
 Traces are excluded from Git, but they can contain task text, model reasoning, file contents, command output, and errors. Treat them as sensitive local debugging artifacts.
 
@@ -363,15 +390,30 @@ itemd/
 ├── main.ts                         # OpenTUI CLI entrypoint and public exports
 ├── src/
 │   ├── agent/
-│   │   ├── runner.ts               # Loop, history, completion, step limit
+│   │   ├── events.ts               # Runtime event contracts
+│   │   ├── interaction-policy.ts   # Direct-answer vs tool-assisted mode
+│   │   ├── runner.ts               # Loop, history, completion, cancellation
 │   │   └── types.ts                # Agent result contracts
+│   ├── config/
+│   │   ├── browser-setup.ts        # Local browser configuration page
+│   │   └── configuration.ts        # Validated user-level configuration
 │   ├── execution/
-│   │   └── command.ts              # Bounded child-process execution
+│   │   ├── command.ts              # Bounded child-process execution
+│   │   └── shell-input.ts          # Safe executable/argument parsing
 │   ├── model/
-│   │   └── adapters/
-│   │       └── deepseek.ts         # DeepSeek request/response boundary
+│   │   ├── adapters/deepseek.ts    # DeepSeek request/response boundary
+│   │   ├── catalog.ts              # Enabled/disabled provider metadata
+│   │   ├── factory.ts              # Provider-neutral adapter factory
+│   │   ├── history.ts              # Model message history helpers
+│   │   └── types.ts                # Model and action contracts
 │   ├── permissions/
-│   │   └── shell-policy.ts         # Deterministic command allowlist
+│   │   ├── shell-approval.ts       # Interactive approval controller
+│   │   ├── shell-policy.ts         # Deterministic command allowlist
+│   │   └── web-policy.ts           # Network/search policy
+│   ├── session/
+│   │   ├── presentation.ts         # Session message presentation
+│   │   ├── service.ts              # Session lifecycle and resume logic
+│   │   └── store.ts                # Persisted session storage
 │   ├── shared/
 │   │   └── runtime.ts              # Generic guards and error helpers
 │   ├── telemetry/
@@ -381,14 +423,25 @@ itemd/
 │   │   └── dispatcher.ts           # Tool implementations and dispatch
 │   ├── ui/
 │   │   ├── commands.ts             # Slash command catalog and discovery
+│   │   ├── editor.ts                # Safe $editor composer flow
 │   │   ├── feedback.ts             # Loader and selection-copy feedback
-│   │   ├── opentui.ts              # Full-screen OpenTUI renderer
+│   │   ├── opentui-activity.ts      # Activity and approval presentation
+│   │   ├── opentui.ts               # Full-screen OpenTUI renderer
 │   │   ├── setup.ts                 # Masked, injectable provider setup
-│   │   └── tui.ts                   # TUI implementation and line interface
+│   │   ├── tui.ts                   # TUI implementation and line interface
+│   │   └── web.ts                   # Loopback browser workspace
+│   ├── web/
+│   │   └── provider.ts              # Optional web-search provider
 │   └── workspace/
 │       └── files.ts                # Path confinement and file checks
 ├── tests/
-│   └── boundaries.test.ts          # Vitest trust-boundary tests
+│   ├── agent-*.test.ts              # Runner, events, streaming, cancellation
+│   ├── session-*.test.ts            # Persistence and resume behavior
+│   ├── *ui*.test.ts                 # TUI, OpenTUI, web, and setup behavior
+│   └── boundaries.test.ts           # Workspace, trace, and tool boundaries
+├── .github/workflows/
+│   ├── release.yml                  # Verify, build, tag, and publish releases
+│   └── protect-release-workflow.yml # Prevent release workflow deletion
 ├── package.json                    # Runtime and verification scripts
 ├── package-lock.json               # Reproducible tool versions
 ├── tsconfig.json                   # Strict TypeScript configuration
@@ -399,12 +452,16 @@ itemd/
     └── traces/                     # Ignored runtime JSONL traces
 ```
 
-The core remains framework-light: plain functions, explicit types, Node.js built-ins, and no classes.
+The core remains framework-light: plain functions, explicit types, Node.js
+built-ins, and only small focused classes where lifecycle behavior benefits from
+one.
 
 ## Current limitations
 
 - The command allowlist is intentionally narrow.
-- Each TUI task starts a new run; there is no persistent cross-task memory.
+- New tasks start independent runs; explicit session persistence and resume are
+  available when the user selects a session.
 - Replay displays recorded events but does not filter or summarize them.
 - Trace write failures surface as top-level harness failures.
-- There is no container isolation, confirmation workflow, browser automation, or multi-agent system.
+- Shell approvals are interactive and currently terminal-oriented.
+- There is no container isolation, MCP integration, browser automation, or multi-agent system.
