@@ -228,7 +228,11 @@ function pageHtml(token: string): string {
     body.light { --bg: #f6f8fa; --panel: #ffffff; --panel-2: #f0f2f4; --text: #1f2328; --muted: #59636e; --accent: #c62828; --success: #1a7f37; --warning: #9a6700; --error: #cf222e; --user: #b42318; --scrim: rgb(255 255 255 / .7); }
     .app { height: 100vh; min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
     header { display: flex; align-items: center; gap: .75rem; padding: .35rem .75rem; background: var(--bg); }
-    .brand-mark { min-width: 0; flex: 1; color: var(--accent); font-weight: 800; letter-spacing: .08em; }
+    @keyframes itemd-type { from { max-width: 0; } to { max-width: 5ch; } }
+    @keyframes itemd-cursor { 0%, 45% { opacity: 1; } 46%, 100% { opacity: 0; } }
+    .brand-mark { min-width: 0; flex: 1; color: var(--accent); font-weight: 800; letter-spacing: .08em; white-space: nowrap; }
+    .brand-word { display: inline-block; max-width: 0; overflow: hidden; vertical-align: bottom; animation: itemd-type 1s steps(5, end) forwards; }
+    .brand-cursor { animation: itemd-cursor .8s steps(1, end) 1s infinite; }
     .status { color: var(--success); white-space: nowrap; }
     .status.running { color: var(--warning); }
     main { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; }
@@ -262,13 +266,14 @@ function pageHtml(token: string): string {
     .modal label { display: block; margin: .8rem 0 .35rem; color: var(--muted); }
     .modal .value { color: var(--text); }
     .modal-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1.2rem; }
+    @media (prefers-reduced-motion: reduce) { .brand-word { max-width: 5ch; animation: none; } .brand-cursor { animation: none; opacity: 1; } }
     @media (max-width: 600px) { .composer { grid-template-columns: 1fr; } .composer textarea { grid-column: 1; } .composer .danger { grid-column: 1; grid-row: 3; justify-self: start; } }
   </style>
 </head>
 <body x-data="itemdApp()" :class="theme === 'light' ? 'light' : ''" @keydown.escape.window="handleEscape()">
 <div class="app">
   <header>
-    <div class="brand-mark" aria-label="itemd">itemd</div>
+    <div class="brand-mark" aria-label="itemd"><span class="brand-word">itemd</span><span class="brand-cursor" aria-hidden="true">_</span></div>
     <button type="button" @click="configOpen = true">Configure</button>
     <div class="status" :class="{ running: busy }" x-text="status"></div>
   </header>

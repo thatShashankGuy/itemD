@@ -68,7 +68,7 @@ describe("web UI", () => {
     const html = await page.text();
     expect(page.status).toBe(200);
     expect(html).toContain("itemd — web workspace");
-    expect(html).toContain('<div class="brand-mark" aria-label="itemd">itemd</div>');
+    expect(html).toContain('<div class="brand-mark" aria-label="itemd"><span class="brand-word">itemd</span><span class="brand-cursor" aria-hidden="true">_</span></div>');
     expect(html).not.toContain("/assets/logo.png");
     expect(html).toContain("Describe a task");
     expect(html).toContain("Web view is experimental.");
@@ -93,6 +93,8 @@ describe("web UI", () => {
     expect(html).toContain("action: '/resume'");
     expect(html).toContain("@keydown.escape.window=\"handleEscape()\"");
     expect(html).toContain(".brand-mark { min-width: 0; flex: 1;");
+    expect(html).toContain("@keyframes itemd-type");
+    expect(html).toContain("@keyframes itemd-cursor");
     expect(html).toContain("class=\"controls\"");
     expect(html).toContain("filteredCommands");
     expect(html).not.toContain(">Send</button>");

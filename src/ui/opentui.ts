@@ -125,6 +125,7 @@ function getLogColorRole(theme: UiTheme, color: string): LogColorRole {
 
 const DEFAULT_FOOTER_TEXT =
   " PgUp/PgDn scroll  •  mouse drag copies  •  Esc stops task  •  Ctrl+C exits ";
+const BRAND_TEXT = "itemd";
 const KEYBOARD_HELP =
   "Keys\n" +
   "Esc             Stop the active agent task\n" +
@@ -443,7 +444,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   });
   const brandText = new TextRenderable(renderer, {
     id: "brand",
-    content: "itemd",
+    content: "",
     fg: COLORS.accent,
     attributes: TextAttributes.BOLD,
     selectable: false,
@@ -456,6 +457,21 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     flexShrink: 0,
   });
   header.add(brandText);
+  let brandTypedLength = 0;
+  let brandCursorVisible = false;
+  const stopBrandAnimation = renderer.onAnimationTick(5, (_deltaTime, ticks) => {
+    for (let tick = 0; tick < ticks; tick += 1) {
+      if (brandTypedLength < BRAND_TEXT.length) {
+        brandTypedLength += 1;
+      } else {
+        brandCursorVisible = !brandCursorVisible;
+      }
+    }
+
+    brandText.content =
+      BRAND_TEXT.slice(0, brandTypedLength) +
+      (brandCursorVisible ? "_" : "");
+  });
   const headerSpacer = new BoxRenderable(renderer, {
     id: "header-spacer",
     flexGrow: 1,
@@ -1214,6 +1230,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   ): void => {
     busy = value;
     stopLoader();
+    stopBrandAnimation();
     stopElapsedTimer();
 
     if (renderer.isDestroyed) {
