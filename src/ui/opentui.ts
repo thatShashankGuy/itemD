@@ -1,9 +1,8 @@
 import { basename, dirname, join, resolve } from "node:path";
 import {
-  ASCIIFontRenderable,
   BoxRenderable,
   CliRenderEvents,
-  ImageRenderable,
+  TextAttributes,
   TextareaRenderable,
   ScrollBoxRenderable,
   TextRenderable,
@@ -15,10 +14,7 @@ import {
   type KeyEvent,
   type Selection,
 } from "@opentui/core";
-import {
-  runAgent,
-  type AgentRunEvent,
-} from "../agent/runner.ts";
+import { runAgent, type AgentRunEvent } from "../agent/runner.ts";
 import type { AgentRuntimeEvent } from "../agent/events.ts";
 import {
   resolveConfiguration,
@@ -32,17 +28,10 @@ import type { ModelAdapter } from "../model/adapter.ts";
 import type { ModelMessage } from "../model/types.ts";
 import { PROVIDER_CATALOG } from "../model/catalog.ts";
 import { createModelAdapter } from "../model/factory.ts";
-import {
-  getErrorMessage,
-  isRecord,
-  isStandaloneExecutable,
-} from "../shared/runtime.ts";
+import { getErrorMessage, isRecord } from "../shared/runtime.ts";
 import { createSerperSearchProvider } from "../web/provider.ts";
 import type { SearchProvider } from "../web/provider.ts";
-import {
-  SessionService,
-  type SessionContext,
-} from "../session/service.ts";
+import { SessionService, type SessionContext } from "../session/service.ts";
 import type { Session } from "../session/store.ts";
 import { presentSessionMessage } from "../session/presentation.ts";
 import { openSessionStore } from "../session/store.ts";
@@ -63,18 +52,12 @@ import {
   getTranscriptSelectionText,
   LOADER_FRAMES,
 } from "./feedback.ts";
-import {
-  executePrefixedShellCommand,
-  formatShellResult,
-} from "./shell.ts";
+import { executePrefixedShellCommand, formatShellResult } from "./shell.ts";
 import {
   formatActivitySnapshot,
   formatShellApprovalPanel,
 } from "./opentui-activity.ts";
-import {
-  composeWithEditor,
-  type EditorComposerOptions,
-} from "./editor.ts";
+import { composeWithEditor, type EditorComposerOptions } from "./editor.ts";
 
 type ThemeName = "dark" | "light";
 
@@ -125,13 +108,7 @@ const LIGHT_THEME: UiTheme = {
 
 let COLORS: UiTheme = DARK_THEME;
 
-type LogColorRole =
-  | "text"
-  | "muted"
-  | "success"
-  | "warning"
-  | "error"
-  | "user";
+type LogColorRole = "text" | "muted" | "success" | "warning" | "error" | "user";
 
 const LOG_COLOR_ROLES: readonly LogColorRole[] = [
   "text",
@@ -143,9 +120,7 @@ const LOG_COLOR_ROLES: readonly LogColorRole[] = [
 ];
 
 function getLogColorRole(theme: UiTheme, color: string): LogColorRole {
-  return (
-    LOG_COLOR_ROLES.find((role) => theme[role] === color) ?? "text"
-  );
+  return LOG_COLOR_ROLES.find((role) => theme[role] === color) ?? "text";
 }
 
 const DEFAULT_FOOTER_TEXT =
@@ -160,7 +135,6 @@ const KEYBOARD_HELP =
   "Mouse drag     Select and copy transcript text\n" +
   "Ctrl+C         Exit itemd";
 
-const LOGO_ASSET_NAME = "Just_One_More_Commit.png";
 const MAX_REPLAY_CHOICES = 12;
 const REPLAY_EVENT_DELAY_MS = 120;
 const MAX_REPLAY_EVENT_CHARS = 20_000;
@@ -179,10 +153,7 @@ function trimReplayText(value: string): string {
     : `${value.slice(0, MAX_REPLAY_EVENT_CHARS)}\n[…replay event truncated]`;
 }
 
-function formatReplayEvent(
-  event: unknown,
-  includeReasoning: boolean,
-): string {
+function formatReplayEvent(event: unknown, includeReasoning: boolean): string {
   if (!isRecord(event) || typeof event.type !== "string") {
     return trimReplayText(formatReplayJson(event));
   }
@@ -213,9 +184,10 @@ function formatReplayEvent(
       );
     }
 
-    const action = result !== undefined && isRecord(result.action)
-      ? result.action
-      : undefined;
+    const action =
+      result !== undefined && isRecord(result.action)
+        ? result.action
+        : undefined;
 
     if (action?.type === "final" && typeof action.text === "string") {
       lines.push(`response:\n${action.text}`);
@@ -252,29 +224,6 @@ function formatReplayEvent(
   return trimReplayText(formatReplayJson(event));
 }
 
-function logoSource(): URL | Blob {
-  const bun = (
-    globalThis as {
-      Bun?: {
-        embeddedFiles?: readonly (Blob & { name?: string })[];
-      };
-    }
-  ).Bun;
-  const embeddedLogo = bun?.embeddedFiles?.find((file) =>
-    file.name?.includes(LOGO_ASSET_NAME),
-  );
-
-  if (embeddedLogo !== undefined) {
-    return embeddedLogo;
-  }
-
-  const assetPath = isStandaloneExecutable()
-    ? `assets/${LOGO_ASSET_NAME}`
-    : `../../assets/${LOGO_ASSET_NAME}`;
-
-  return new URL(assetPath, import.meta.url);
-}
-
 export type OpenTuiOptions = {
   resumeSessionId?: string;
   sessionDbPath?: string;
@@ -284,9 +233,7 @@ export type OpenTuiOptions = {
   editor?: Pick<EditorComposerOptions, "env" | "tempDirectory" | "execute">;
 };
 
-function getOpenTuiSessionDbPath(
-  options: OpenTuiOptions,
-): string | undefined {
+function getOpenTuiSessionDbPath(options: OpenTuiOptions): string | undefined {
   if (options.sessionDbPath !== undefined) {
     return options.sessionDbPath;
   }
@@ -296,16 +243,15 @@ function getOpenTuiSessionDbPath(
   }
 
   if (options.config.configPath !== undefined) {
-    return join(
-      dirname(resolve(options.config.configPath)),
-      "sessions.db",
-    );
+    return join(dirname(resolve(options.config.configPath)), "sessions.db");
   }
 
   return undefined;
 }
 
-function parseShellApprovalDecision(value: string): ShellApprovalDecision | null {
+function parseShellApprovalDecision(
+  value: string,
+): ShellApprovalDecision | null {
   const choice = value.trim().toLowerCase();
 
   if (choice === "1" || choice === "once" || choice === "y") {
@@ -338,11 +284,12 @@ function createActiveConfiguration(
     return { ok: false, message: adapterResult.error.message };
   }
 
-  const webSearchProvider = configuration.webSearch?.enabled === true
-    ? createSerperSearchProvider({
-        apiKey: configuration.webSearch.serperApiKey,
-      })
-    : undefined;
+  const webSearchProvider =
+    configuration.webSearch?.enabled === true
+      ? createSerperSearchProvider({
+          apiKey: configuration.webSearch.serperApiKey,
+        })
+      : undefined;
 
   return {
     ok: true,
@@ -357,8 +304,7 @@ function createActiveConfiguration(
 async function loadActiveConfiguration(
   config: ConfigurationOptions,
 ): Promise<
-  | { ok: true; active: ActiveConfiguration }
-  | { ok: false; message: string }
+  { ok: true; active: ActiveConfiguration } | { ok: false; message: string }
 > {
   const result = await resolveConfiguration(config);
 
@@ -388,7 +334,9 @@ async function runInitialSetup(
   const result = await runBrowserSetup({ config });
 
   if (result.status !== "saved") {
-    process.stderr.write(`[configuration] ${result.status === "failed" ? result.message : "Setup cancelled."}\n`);
+    process.stderr.write(
+      `[configuration] ${result.status === "failed" ? result.message : "Setup cancelled."}\n`,
+    );
     return null;
   }
 
@@ -422,9 +370,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
 
   const sessionDbPath = getOpenTuiSessionDbPath(options);
   const sessionStore = await openSessionStore({
-    ...(sessionDbPath === undefined
-      ? {}
-      : { dbPath: sessionDbPath }),
+    ...(sessionDbPath === undefined ? {} : { dbPath: sessionDbPath }),
     ...(options.config.env === undefined ? {} : { env: options.config.env }),
   });
   const sessionService = new SessionService(sessionStore);
@@ -495,26 +441,13 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     columnGap: 1,
     backgroundColor: COLORS.background,
   });
-  const logoFallback = new ASCIIFontRenderable(renderer, {
-    id: "logo-fallback",
-    text: "itemd",
-    font: "tiny",
-    color: COLORS.accent,
+  const brandText = new TextRenderable(renderer, {
+    id: "brand",
+    content: "itemd",
+    fg: COLORS.accent,
+    attributes: TextAttributes.BOLD,
     selectable: false,
     flexShrink: 0,
-    visible: false,
-  });
-  const logo = new ImageRenderable(renderer, {
-    id: "logo",
-    source: logoSource(),
-    width: 8,
-    height: 3,
-    fit: "fill",
-    flexShrink: 0,
-    onError: () => {
-      logo.visible = false;
-      logoFallback.visible = true;
-    },
   });
   const statusText = new TextRenderable(renderer, {
     id: "status",
@@ -522,8 +455,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     fg: COLORS.success,
     flexShrink: 0,
   });
-  header.add(logo);
-  header.add(logoFallback);
+  header.add(brandText);
   const headerSpacer = new BoxRenderable(renderer, {
     id: "header-spacer",
     flexGrow: 1,
@@ -710,12 +642,10 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   let stopLoaderTick: (() => void) | null = null;
   let elapsedTimer: ReturnType<typeof setInterval> | null = null;
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
-  let pendingShellApproval:
-    | {
-        resolve: (decision: ShellApprovalDecision) => void;
-        cleanup: () => void;
-      }
-    | null = null;
+  let pendingShellApproval: {
+    resolve: (decision: ShellApprovalDecision) => void;
+    cleanup: () => void;
+  } | null = null;
   const transcriptEntries: Array<{
     renderable: TextRenderable;
     colorRole: LogColorRole;
@@ -757,19 +687,13 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     stopLoader();
     let frameIndex = 0;
     statusText.content = `${LOADER_FRAMES[frameIndex]} RUNNING`;
-    stopLoaderTick = renderer.onAnimationTick(
-      10,
-      (_deltaTime, ticks) => {
-        frameIndex = (frameIndex + ticks) % LOADER_FRAMES.length;
-        statusText.content = `${LOADER_FRAMES[frameIndex]} RUNNING`;
-      },
-    );
+    stopLoaderTick = renderer.onAnimationTick(10, (_deltaTime, ticks) => {
+      frameIndex = (frameIndex + ticks) % LOADER_FRAMES.length;
+      statusText.content = `${LOADER_FRAMES[frameIndex]} RUNNING`;
+    });
   };
 
-  const showToast = (
-    message: string,
-    color: string = COLORS.success,
-  ): void => {
+  const showToast = (message: string, color: string = COLORS.success): void => {
     if (renderer.isDestroyed) {
       return;
     }
@@ -839,8 +763,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     }
 
     liveAssistantText += text;
-    liveAssistantEntry.content =
-      `assistant step ${step}\n${liveAssistantText}`;
+    liveAssistantEntry.content = `assistant step ${step}\n${liveAssistantText}`;
     transcript.scrollTo(Infinity);
   };
 
@@ -851,11 +774,13 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     }
 
     if (event.type === "activity") {
-      updateActivity(formatActivitySnapshot({
-        phase: event.phase,
-        message: event.message,
-        ...(event.step === undefined ? {} : { step: event.step }),
-      }));
+      updateActivity(
+        formatActivitySnapshot({
+          phase: event.phase,
+          message: event.message,
+          ...(event.step === undefined ? {} : { step: event.step }),
+        }),
+      );
       if (event.phase === "executing_tool") {
         footer.content = ` ${event.message}`;
         footer.fg = COLORS.muted;
@@ -864,11 +789,13 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     }
 
     if (event.type === "tool_started") {
-      updateActivity(formatActivitySnapshot({
-        phase: "tool_started",
-        message: event.toolName,
-        step: event.step,
-      }));
+      updateActivity(
+        formatActivitySnapshot({
+          phase: "tool_started",
+          message: event.toolName,
+          step: event.step,
+        }),
+      );
       appendLog(
         "tool  ",
         `${event.toolName} started (step ${event.step})`,
@@ -878,11 +805,13 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     }
 
     if (event.type === "tool_finished") {
-      updateActivity(formatActivitySnapshot({
-        phase: event.result.ok ? "tool_finished" : "tool_failed",
-        message: event.toolName,
-        step: event.step,
-      }));
+      updateActivity(
+        formatActivitySnapshot({
+          phase: event.result.ok ? "tool_finished" : "tool_failed",
+          message: event.toolName,
+          step: event.step,
+        }),
+      );
       appendLog(
         "tool  ",
         `${event.toolName} ${event.result.ok ? "completed" : "failed"}`,
@@ -916,9 +845,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     pending.resolve(decision);
   };
 
-  const formatShellApprovalCommand = (
-    request: ShellApprovalRequest,
-  ): string =>
+  const formatShellApprovalCommand = (request: ShellApprovalRequest): string =>
     [request.call.executable, ...request.call.args]
       .map((part) => JSON.stringify(part))
       .join(" ");
@@ -960,7 +887,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     renderer.setBackgroundColor(theme.background);
     app.backgroundColor = theme.background;
     header.backgroundColor = theme.background;
-    logoFallback.color = theme.accent;
+    brandText.fg = theme.accent;
     statusText.fg = busy ? theme.warning : theme.success;
     activityBox.backgroundColor = theme.panel;
     activityText.fg = theme.muted;
@@ -992,7 +919,6 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       entry.renderable.selectionBg = theme.selectionBackground;
       entry.renderable.selectionFg = theme.selectionText;
     }
-
   };
 
   const resetTranscript = (message: string): void => {
@@ -1021,11 +947,12 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     appendLog("history  ", "Restored session history", COLORS.muted);
     for (const message of sessionContext.messages) {
       const presented = presentSessionMessage(message);
-      const color = presented.label === "you"
-        ? COLORS.user
-        : presented.label === "tool"
-          ? COLORS.muted
-          : COLORS.text;
+      const color =
+        presented.label === "you"
+          ? COLORS.user
+          : presented.label === "tool"
+            ? COLORS.muted
+            : COLORS.text;
       appendLog(`${presented.label}  `, presented.text, color);
     }
   };
@@ -1037,7 +964,11 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
   };
 
   const updateCommandPalette = (value: string): void => {
-    if (replayPickerVisible || sessionPickerVisible || configurationMenu !== null) {
+    if (
+      replayPickerVisible ||
+      sessionPickerVisible ||
+      configurationMenu !== null
+    ) {
       return;
     }
 
@@ -1073,9 +1004,10 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       .join("\n");
     commandPalette.height = visibleChoices.length + 2;
     commandPalette.visible = true;
-    footer.content = total > MAX_REPLAY_CHOICES
-      ? ` ↑/↓ select • Enter open • Esc close • showing newest ${MAX_REPLAY_CHOICES} of ${total} `
-      : " ↑/↓ select • Enter open • Esc close ";
+    footer.content =
+      total > MAX_REPLAY_CHOICES
+        ? ` ↑/↓ select • Enter open • Esc close • showing newest ${MAX_REPLAY_CHOICES} of ${total} `
+        : " ↑/↓ select • Enter open • Esc close ";
     footer.fg = COLORS.muted;
   };
 
@@ -1100,15 +1032,17 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     commandPaletteText.content = visibleChoices
       .map((session, index) => {
         const marker = index === selectedSessionIndex ? "›" : " ";
-        const activeMarker = session.id === sessionContext.session.id ? "*" : " ";
+        const activeMarker =
+          session.id === sessionContext.session.id ? "*" : " ";
         return `${marker} ${activeMarker} ${session.id}  ${basename(session.workspaceRoot)}  ${session.updatedAt}`;
       })
       .join("\n");
     commandPalette.height = visibleChoices.length + 2;
     commandPalette.visible = true;
-    footer.content = total > 10
-      ? " ↑/↓ select • Enter resume • Esc close • showing newest 10 "
-      : " ↑/↓ select • Enter resume • Esc close ";
+    footer.content =
+      total > 10
+        ? " ↑/↓ select • Enter resume • Esc close • showing newest 10 "
+        : " ↑/↓ select • Enter resume • Esc close ";
     footer.fg = COLORS.muted;
   };
 
@@ -1132,20 +1066,29 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       .filter((session) => session.workspaceRoot === options.workspaceRoot);
 
     if (sessionChoices.length === 0) {
-      appendLog("sessions  ", "No sessions found for this workspace.", COLORS.muted);
+      appendLog(
+        "sessions  ",
+        "No sessions found for this workspace.",
+        COLORS.muted,
+      );
       return;
     }
 
     selectedSessionIndex = Math.max(
       0,
-      sessionChoices.findIndex((session) => session.id === sessionContext.session.id),
+      sessionChoices.findIndex(
+        (session) => session.id === sessionContext.session.id,
+      ),
     );
     sessionPickerVisible = true;
     updateSessionPicker();
   };
 
   const resumeSessionById = (sessionId: string): void => {
-    const resumed = sessionService.resumeSession(sessionId, options.workspaceRoot);
+    const resumed = sessionService.resumeSession(
+      sessionId,
+      options.workspaceRoot,
+    );
 
     if (!resumed.ok) {
       appendLog("session error  ", resumed.error.message, COLORS.error);
@@ -1188,9 +1131,11 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       return;
     }
 
-    const provider = PROVIDER_CATALOG.find(
-      (candidate) => candidate.id === active.configuration.provider && candidate.enabled,
-    ) ?? PROVIDER_CATALOG[0];
+    const provider =
+      PROVIDER_CATALOG.find(
+        (candidate) =>
+          candidate.id === active.configuration.provider && candidate.enabled,
+      ) ?? PROVIDER_CATALOG[0];
 
     if (!provider.enabled) {
       return;
@@ -1216,7 +1161,8 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       configurationChoices = [
         ...provider.models.map((model) => ({
           label: model.displayName,
-          detail: model.id === active.configuration.model ? "Current" : model.id,
+          detail:
+            model.id === active.configuration.model ? "Current" : model.id,
         })),
         { label: "Back", detail: "Return to configuration" },
       ];
@@ -1224,7 +1170,8 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       configurationChoices = [
         ...provider.reasoningEfforts.map((effort) => ({
           label: effort.displayName,
-          detail: effort.id === active.configuration.effort ? "Current" : effort.id,
+          detail:
+            effort.id === active.configuration.effort ? "Current" : effort.id,
         })),
         { label: "Back", detail: "Return to configuration" },
       ];
@@ -1234,11 +1181,12 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       selectedConfigurationIndex,
       Math.max(configurationChoices.length - 1, 0),
     );
-    commandPalette.title = configurationMenu.level === "root"
-      ? " configuration "
-      : configurationMenu.level === "model"
-        ? " model "
-        : " reasoning effort ";
+    commandPalette.title =
+      configurationMenu.level === "root"
+        ? " configuration "
+        : configurationMenu.level === "model"
+          ? " model "
+          : " reasoning effort ";
     commandPaletteText.content = configurationChoices
       .map((choice, index) => {
         const marker = index === selectedConfigurationIndex ? "›" : " ";
@@ -1286,7 +1234,11 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
 
     if (value && (showLoader || status === "REPLAY" || status === "SHELL")) {
       startElapsedTimer(
-        status === "REPLAY" ? "REPLAY" : status === "SHELL" ? "SHELL" : "ELAPSED",
+        status === "REPLAY"
+          ? "REPLAY"
+          : status === "SHELL"
+            ? "SHELL"
+            : "ELAPSED",
       );
     }
 
@@ -1518,7 +1470,11 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     const storedResult = await readConfiguration(options.config);
 
     if (!storedResult.ok) {
-      appendLog("configuration error  ", storedResult.error.message, COLORS.error);
+      appendLog(
+        "configuration error  ",
+        storedResult.error.message,
+        COLORS.error,
+      );
       return;
     }
 
@@ -1548,7 +1504,11 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
     );
 
     if (!writeResult.ok) {
-      appendLog("configuration error  ", writeResult.error.message, COLORS.error);
+      appendLog(
+        "configuration error  ",
+        writeResult.error.message,
+        COLORS.error,
+      );
       return;
     }
 
@@ -1579,7 +1539,11 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       if (result.status === "saved") {
         await reloadConfiguration();
       } else if (result.status === "cancelled") {
-        appendLog("configuration  ", "Setup cancelled. Keeping the previous configuration.", COLORS.warning);
+        appendLog(
+          "configuration  ",
+          "Setup cancelled. Keeping the previous configuration.",
+          COLORS.warning,
+        );
       } else {
         appendLog("configuration error  ", result.message, COLORS.error);
       }
@@ -1622,18 +1586,25 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       return;
     }
 
-    const provider = PROVIDER_CATALOG.find(
-      (candidate) => candidate.id === active.configuration.provider && candidate.enabled,
-    ) ?? PROVIDER_CATALOG[0];
+    const provider =
+      PROVIDER_CATALOG.find(
+        (candidate) =>
+          candidate.id === active.configuration.provider && candidate.enabled,
+      ) ?? PROVIDER_CATALOG[0];
 
     if (!provider.enabled) {
       closeConfigurationMenu();
       return;
     }
 
-    const selected = configurationMenu.level === "model"
-      ? provider.models.find((candidate) => candidate.displayName === choice.label)
-      : provider.reasoningEfforts.find((candidate) => candidate.displayName === choice.label);
+    const selected =
+      configurationMenu.level === "model"
+        ? provider.models.find(
+            (candidate) => candidate.displayName === choice.label,
+          )
+        : provider.reasoningEfforts.find(
+            (candidate) => candidate.displayName === choice.label,
+          );
 
     if (selected === undefined) {
       return;
@@ -1726,9 +1697,8 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
           return;
         }
 
-        streamReasoning = requested === undefined
-          ? !streamReasoning
-          : requested === "on";
+        streamReasoning =
+          requested === undefined ? !streamReasoning : requested === "on";
         appendLog(
           "reasoning  ",
           `Replay reasoning ${streamReasoning ? "enabled" : "disabled"}.`,
@@ -1750,13 +1720,20 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
         }
         return;
       case "/model": {
-        const provider = PROVIDER_CATALOG.find(
-          (candidate) => candidate.id === active.configuration.provider && candidate.enabled,
-        ) ?? PROVIDER_CATALOG[0];
+        const provider =
+          PROVIDER_CATALOG.find(
+            (candidate) =>
+              candidate.id === active.configuration.provider &&
+              candidate.enabled,
+          ) ?? PROVIDER_CATALOG[0];
         const requested = words[1];
 
         if (!provider.enabled) {
-          appendLog("configuration error  ", "The active provider is disabled.", COLORS.error);
+          appendLog(
+            "configuration error  ",
+            "The active provider is disabled.",
+            COLORS.error,
+          );
           return;
         }
 
@@ -1765,7 +1742,9 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
           return;
         }
 
-        const model = provider.models.find((candidate) => candidate.id === requested);
+        const model = provider.models.find(
+          (candidate) => candidate.id === requested,
+        );
 
         if (model === undefined || words.length > 2) {
           appendLog(
@@ -1780,13 +1759,20 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
         return;
       }
       case "/effort": {
-        const provider = PROVIDER_CATALOG.find(
-          (candidate) => candidate.id === active.configuration.provider && candidate.enabled,
-        ) ?? PROVIDER_CATALOG[0];
+        const provider =
+          PROVIDER_CATALOG.find(
+            (candidate) =>
+              candidate.id === active.configuration.provider &&
+              candidate.enabled,
+          ) ?? PROVIDER_CATALOG[0];
         const requested = words[1];
 
         if (!provider.enabled) {
-          appendLog("configuration error  ", "The active provider is disabled.", COLORS.error);
+          appendLog(
+            "configuration error  ",
+            "The active provider is disabled.",
+            COLORS.error,
+          );
           return;
         }
 
@@ -1795,7 +1781,9 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
           return;
         }
 
-        const effort = provider.reasoningEfforts.find((candidate) => candidate.id === requested);
+        const effort = provider.reasoningEfforts.find(
+          (candidate) => candidate.id === requested,
+        );
 
         if (effort === undefined || words.length > 2) {
           appendLog(
@@ -1908,10 +1896,12 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
 
     const isDirectShell = line.startsWith("!");
     const isEditorCommand = line === "$editor";
-    const isAgentTask = !line.startsWith("/") && !isDirectShell && !isEditorCommand;
-    const runController = isAgentTask || isDirectShell || isEditorCommand
-      ? new AbortController()
-      : null;
+    const isAgentTask =
+      !line.startsWith("/") && !isDirectShell && !isEditorCommand;
+    const runController =
+      isAgentTask || isDirectShell || isEditorCommand
+        ? new AbortController()
+        : null;
     activeRunController = runController;
     setBusy(
       true,
@@ -1933,7 +1923,11 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
 
       if (isEditorCommand) {
         if (runController === null) {
-          appendLog("editor  ", "The editor composer is unavailable.", COLORS.error);
+          appendLog(
+            "editor  ",
+            "The editor composer is unavailable.",
+            COLORS.error,
+          );
           return;
         }
 
@@ -1963,14 +1957,12 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
         COLORS.muted,
       );
       resetLiveAssistant();
-      sessionContext = sessionService.appendMessage(
-        sessionContext.session.id,
-        { role: "user", content: line },
-      );
+      sessionContext = sessionService.appendMessage(sessionContext.session.id, {
+        role: "user",
+        content: line,
+      });
       const runOptions = {
-        ...(runController === null
-          ? {}
-          : { signal: runController.signal }),
+        ...(runController === null ? {} : { signal: runController.signal }),
         tools: {
           shellMode: options.shellMode ?? "ask",
           shellApproval,
@@ -2016,11 +2008,7 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       } else if (result.status === "cancelled") {
         appendLog("stopped  ", result.error.message, COLORS.warning);
       } else {
-        appendLog(
-          `${result.status}  `,
-          result.error.message,
-          COLORS.error,
-        );
+        appendLog(`${result.status}  `, result.error.message, COLORS.error);
       }
 
       appendLog(
@@ -2057,7 +2045,9 @@ export async function runOpenTui(options: OpenTuiOptions): Promise<void> {
       return undefined;
     }
 
-    taskInput.setText(`${selected.name}${selected.name === "/replay" ? " " : ""}`);
+    taskInput.setText(
+      `${selected.name}${selected.name === "/replay" ? " " : ""}`,
+    );
     updateCommandPalette(taskInput.plainText);
     return selected;
   };

@@ -1,7 +1,5 @@
 # itemd
 
-<img src="/assets/Just_One_More_Commit.png" alt="Just one more commit" width="360" />
-
 itemd is a framework-light TypeScript and Node.js coding-agent harness that
 keeps the runtime around the model visible: model calls, tool requests,
 validation, command execution, workspace boundaries, failures, step limits, and
@@ -173,24 +171,24 @@ To run a direct inspection command, prefix it with `!`, for example
 argument parsing, timeout, output limits, and shell allowlist as model-requested
 shell calls; they are never passed through a system shell.
 
-| Command | Behavior |
-| --- | --- |
-| `/help` | Show available commands |
-| `/config` | Show the active provider, model, effort, and web search |
-| `/model [model-id]` | Select or change the active model |
-| `/effort [none\|low\|high\|max]` | Select or change reasoning effort |
-| `/reasoning [on\|off]` | Toggle reasoning in live runs and replay output |
-| `/reload` | Reload the API key and model settings from config/environment |
-| `/setup` | Open the in-app configuration menu |
-| `/setup browser` | Open browser setup for keys and all configuration |
-| `/adapter` | Alias for `/setup` |
-| `/replays` | List recorded runs |
-| `/replay <trace-id>` | Display a recorded run without executing it |
-| `/clear` | Clear the terminal |
-| `/new` | Start a new session and retain the active configuration |
-| `/theme [dark\|light]` | Switch themes; omit the argument to toggle |
-| `$editor` | Compose a message in the terminal’s default editor |
-| `/quit` or `/exit` | Exit the interface |
+| Command                          | Behavior                                                      |
+| -------------------------------- | ------------------------------------------------------------- |
+| `/help`                          | Show available commands                                       |
+| `/config`                        | Show the active provider, model, effort, and web search       |
+| `/model [model-id]`              | Select or change the active model                             |
+| `/effort [none\|low\|high\|max]` | Select or change reasoning effort                             |
+| `/reasoning [on\|off]`           | Toggle reasoning in live runs and replay output               |
+| `/reload`                        | Reload the API key and model settings from config/environment |
+| `/setup`                         | Open the in-app configuration menu                            |
+| `/setup browser`                 | Open browser setup for keys and all configuration             |
+| `/adapter`                       | Alias for `/setup`                                            |
+| `/replays`                       | List recorded runs                                            |
+| `/replay <trace-id>`             | Display a recorded run without executing it                   |
+| `/clear`                         | Clear the terminal                                            |
+| `/new`                           | Start a new session and retain the active configuration       |
+| `/theme [dark\|light]`           | Switch themes; omit the argument to toggle                    |
+| `$editor`                        | Compose a message in the terminal’s default editor            |
+| `/quit` or `/exit`               | Exit the interface                                            |
 
 From a standalone installation, use `itemd --version` to show the installed
 release, `itemd --update` to download the latest platform binary, or
@@ -221,10 +219,10 @@ Pushing to `master` starts the GitHub Actions release workflow. It installs
 dependencies with npm, runs type-checking and tests, then uses Bun only to
 compile the TUI entrypoint into platform-specific standalone binaries:
 
-| Platform | Release asset |
-| --- | --- |
-| Linux x64 | `itemd-linux-x64` |
-| macOS ARM64 | `itemd-macos-arm64` |
+| Platform    | Release asset           |
+| ----------- | ----------------------- |
+| Linux x64   | `itemd-linux-x64`       |
+| macOS ARM64 | `itemd-macos-arm64`     |
 | Windows x64 | `itemd-windows-x64.exe` |
 
 To publish a release, update `package.json` to a new version, for example
@@ -239,15 +237,15 @@ is created. The binaries start the interactive OpenTUI interface; run
 The recent runtime and UI work is organized around explicit boundaries rather
 than a framework layer:
 
-| Area | What it adds | Primary implementation |
-| --- | --- | --- |
-| OpenTUI runtime | Streaming model/tool activity, shell approval panels, session navigation, and responsive context panels | `src/ui/opentui.ts`, `src/ui/opentui-activity.ts`, `src/agent/events.ts` |
-| Sessions and replay | Resumable sessions, persisted message history, `/sessions`, `/resume`, `/replays`, and read-only replay | `src/session/`, `src/telemetry/trace.ts`, `src/session/presentation.ts` |
-| Web workspace | Experimental browser workspace with multiline input, slash-command completion, theme/configuration controls, session pickers, and replay | `src/ui/web.ts`, `src/config/browser-setup.ts` |
-| Direct answers | Informational questions can use a tool-free interaction mode; workspace-dependent questions retain the agent loop | `src/agent/interaction-policy.ts`, `src/agent/runner.ts`, `src/model/adapters/deepseek.ts` |
-| Editor composer | `$editor` opens `VISUAL` or `EDITOR`, loads saved Markdown into the terminal composer, and never submits automatically | `src/ui/editor.ts`, `src/ui/opentui.ts` |
-| Provider setup | Validated DeepSeek model/effort selection, masked setup input, environment overrides, and user-level configuration | `src/model/catalog.ts`, `src/config/configuration.ts`, `src/ui/setup.ts` |
-| Release hardening | Platform-specific `node-pty` assets, version-bump verification, and protected release workflows | `.github/workflows/release.yml`, `.github/workflows/protect-release-workflow.yml` |
+| Area                | What it adds                                                                                                                             | Primary implementation                                                                     |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| OpenTUI runtime     | Streaming model/tool activity, shell approval panels, session navigation, and responsive context panels                                  | `src/ui/opentui.ts`, `src/ui/opentui-activity.ts`, `src/agent/events.ts`                   |
+| Sessions and replay | Resumable sessions, persisted message history, `/sessions`, `/resume`, `/replays`, and read-only replay                                  | `src/session/`, `src/telemetry/trace.ts`, `src/session/presentation.ts`                    |
+| Web workspace       | Experimental browser workspace with multiline input, slash-command completion, theme/configuration controls, session pickers, and replay | `src/ui/web.ts`, `src/config/browser-setup.ts`                                             |
+| Direct answers      | Informational questions can use a tool-free interaction mode; workspace-dependent questions retain the agent loop                        | `src/agent/interaction-policy.ts`, `src/agent/runner.ts`, `src/model/adapters/deepseek.ts` |
+| Editor composer     | `$editor` opens `VISUAL` or `EDITOR`, loads saved Markdown into the terminal composer, and never submits automatically                   | `src/ui/editor.ts`, `src/ui/opentui.ts`                                                    |
+| Provider setup      | Validated DeepSeek model/effort selection, masked setup input, environment overrides, and user-level configuration                       | `src/model/catalog.ts`, `src/config/configuration.ts`, `src/ui/setup.ts`                   |
+| Release hardening   | Platform-specific `node-pty` assets, version-bump verification, and protected release workflows                                          | `.github/workflows/release.yml`, `.github/workflows/protect-release-workflow.yml`          |
 
 ## Agent flow
 
@@ -303,17 +301,17 @@ read-only path and never enters the model or tool-execution flow.
 
 ## Model-facing tools
 
-| Tool | Purpose |
-| --- | --- |
-| `read_file` | Read one UTF-8 workspace file |
-| `write_file` | Create a file or replace an existing regular file with complete UTF-8 content |
-| `edit_file` | Replace one exact, unique text occurrence in an existing file |
-| `delete_file` | Delete one existing regular workspace file |
-| `list_files` | List immediate files and directories in a workspace directory |
-| `search_files` | Search workspace text files for a literal string with paths and line numbers |
-| `shell` | Run an executable and argument array accepted by the command policy |
-| `web_search` | Search the public web and return up to five normalized results |
-| `web_fetch` | Fetch bounded text from one public URL returned by search |
+| Tool           | Purpose                                                                       |
+| -------------- | ----------------------------------------------------------------------------- |
+| `read_file`    | Read one UTF-8 workspace file                                                 |
+| `write_file`   | Create a file or replace an existing regular file with complete UTF-8 content |
+| `edit_file`    | Replace one exact, unique text occurrence in an existing file                 |
+| `delete_file`  | Delete one existing regular workspace file                                    |
+| `list_files`   | List immediate files and directories in a workspace directory                 |
+| `search_files` | Search workspace text files for a literal string with paths and line numbers  |
+| `shell`        | Run an executable and argument array accepted by the command policy           |
+| `web_search`   | Search the public web and return up to five normalized results                |
+| `web_fetch`    | Fetch bounded text from one public URL returned by search                     |
 
 External tool input remains `unknown` until it passes handwritten runtime validation. Expected failures use structured results rather than exceptions.
 
@@ -340,12 +338,12 @@ The command policy protects against common accidental host mutation. It is an al
 
 ## Supported shell commands
 
-| Executable | Allowed use |
-| --- | --- |
-| `git` | Read-only `status`, `diff`, `log`, and `show` |
-| `ls`, `pwd`, `rg` | Workspace inspection |
-| `node` | `--version`, `--check`, and `--test` |
-| `npm` | `npm test`, with options only after `--` |
+| Executable          | Allowed use                                    |
+| ------------------- | ---------------------------------------------- |
+| `git`               | Read-only `status`, `diff`, `log`, and `show`  |
+| `ls`, `pwd`, `rg`   | Workspace inspection                           |
+| `node`              | `--version`, `--check`, and `--test`           |
+| `npm`               | `npm test`, with options only after `--`       |
 | `python`, `python3` | Version checks, `-m pytest`, and `-m unittest` |
 
 Arbitrary Node or Python evaluation, direct script execution, package installation, Git mutation, sensitive paths, absolute paths, and unsafe command options are denied.

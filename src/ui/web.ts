@@ -1,6 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFile } from "node:fs/promises";
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import { basename, dirname, join, resolve } from "node:path";
 import {
   runAgent,
@@ -21,7 +24,11 @@ import type { ModelMessage } from "../model/types.ts";
 import { PROVIDER_CATALOG } from "../model/catalog.ts";
 import { createModelAdapter } from "../model/factory.ts";
 import { getErrorMessage, isRecord } from "../shared/runtime.ts";
-import { listTraces, replayTrace, type ReplayResult } from "../telemetry/trace.ts";
+import {
+  listTraces,
+  replayTrace,
+  type ReplayResult,
+} from "../telemetry/trace.ts";
 import { executePrefixedShellCommand, formatShellResult } from "./shell.ts";
 import { formatTuiCommandHelp } from "./commands.ts";
 import type { SearchProvider } from "../web/provider.ts";
@@ -32,8 +39,6 @@ import { openSessionStore, type Session } from "../session/store.ts";
 const DEFAULT_HOST = "127.0.0.1";
 const MAX_BODY_BYTES = 128 * 1024;
 const MAX_EVENTS = 400;
-const LOGO_NAME = "Just_One_More_Commit.png";
-
 type ActiveConfiguration = {
   configuration: ItemDConfiguration;
   adapter: ModelAdapter;
@@ -43,7 +48,13 @@ type ActiveConfiguration = {
 type WebEvent =
   | { seq: number; type: "log"; label: string; message: string; tone?: string }
   | { seq: number; type: "reasoning"; step: number; text: string }
-  | { seq: number; type: "activity"; phase: string; message: string; step?: number }
+  | {
+      seq: number;
+      type: "activity";
+      phase: string;
+      message: string;
+      step?: number;
+    }
   | { seq: number; type: "status"; status: "ready" | "running" | "stopping" }
   | { seq: number; type: "state"; state: WebState }
   | { seq: number; type: "run"; result: AgentRunResult };
@@ -89,15 +100,12 @@ type WebCommandResult = {
 
 function getWebSessionDbPath(options: WebOptions): string | undefined {
   if (options.sessionDbPath !== undefined) return options.sessionDbPath;
-  if (options.config?.env?.ITEMD_SESSION_DB_PATH !== undefined) return undefined;
+  if (options.config?.env?.ITEMD_SESSION_DB_PATH !== undefined)
+    return undefined;
   if (options.config?.configPath !== undefined) {
     return join(dirname(resolve(options.config.configPath)), "sessions.db");
   }
   return undefined;
-}
-
-function isMissingFileError(error: unknown): boolean {
-  return isRecord(error) && error.code === "ENOENT";
 }
 
 function sendJson(
@@ -149,9 +157,12 @@ function createActiveConfiguration(
     return { ok: false, message: adapterResult.error.message };
   }
 
-  const webSearchProvider = configuration.webSearch?.enabled === true
-    ? createSerperSearchProvider({ apiKey: configuration.webSearch.serperApiKey })
-    : undefined;
+  const webSearchProvider =
+    configuration.webSearch?.enabled === true
+      ? createSerperSearchProvider({
+          apiKey: configuration.webSearch.serperApiKey,
+        })
+      : undefined;
 
   return {
     ok: true,
@@ -165,7 +176,9 @@ function createActiveConfiguration(
 
 async function loadActiveConfiguration(
   config: ConfigurationOptions,
-): Promise<{ ok: true; active: ActiveConfiguration } | { ok: false; message: string }> {
+): Promise<
+  { ok: true; active: ActiveConfiguration } | { ok: false; message: string }
+> {
   const result = await resolveConfiguration(config);
 
   if (!result.ok) {
@@ -215,8 +228,7 @@ function pageHtml(token: string): string {
     body.light { --bg: #f6f8fa; --panel: #ffffff; --panel-2: #f0f2f4; --text: #1f2328; --muted: #59636e; --accent: #c62828; --success: #1a7f37; --warning: #9a6700; --error: #cf222e; --user: #b42318; --scrim: rgb(255 255 255 / .7); }
     .app { height: 100vh; min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
     header { display: flex; align-items: center; gap: .75rem; padding: .35rem .75rem; background: var(--bg); }
-    #logo { width: 64px; height: 56px; object-fit: contain; image-rendering: pixelated; }
-    .brand { min-width: 0; flex: 1; color: var(--accent); font-weight: 700; }
+    .brand-mark { min-width: 0; flex: 1; color: var(--accent); font-weight: 800; letter-spacing: .08em; }
     .status { color: var(--success); white-space: nowrap; }
     .status.running { color: var(--warning); }
     main { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; }
@@ -250,14 +262,13 @@ function pageHtml(token: string): string {
     .modal label { display: block; margin: .8rem 0 .35rem; color: var(--muted); }
     .modal .value { color: var(--text); }
     .modal-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1.2rem; }
-    @media (max-width: 600px) { .brand { display: none; } .composer { grid-template-columns: 1fr; } .composer textarea { grid-column: 1; } .composer .danger { grid-column: 1; grid-row: 3; justify-self: start; } }
+    @media (max-width: 600px) { .composer { grid-template-columns: 1fr; } .composer textarea { grid-column: 1; } .composer .danger { grid-column: 1; grid-row: 3; justify-self: start; } }
   </style>
 </head>
 <body x-data="itemdApp()" :class="theme === 'light' ? 'light' : ''" @keydown.escape.window="handleEscape()">
 <div class="app">
   <header>
-    <img id="logo" src="/assets/logo.png?token=${encodeURIComponent(token)}" alt="itemd logo">
-    <div class="brand">itemd</div>
+    <div class="brand-mark" aria-label="itemd">itemd</div>
     <button type="button" @click="configOpen = true">Configure</button>
     <div class="status" :class="{ running: busy }" x-text="status"></div>
   </header>
@@ -535,24 +546,6 @@ window.itemdApp = () => ({
 </html>`;
 }
 
-async function loadLogo(): Promise<Uint8Array | null> {
-  const bun = globalThis as {
-    Bun?: { embeddedFiles?: readonly (Blob & { name?: string })[] };
-  };
-  const embedded = bun.Bun?.embeddedFiles?.find((file) => file.name?.includes(LOGO_NAME));
-
-  if (embedded !== undefined) {
-    return new Uint8Array(await embedded.arrayBuffer());
-  }
-
-  try {
-    return await readFile(new URL(`../../assets/${LOGO_NAME}`, import.meta.url));
-  } catch (error: unknown) {
-    if (isMissingFileError(error)) return null;
-    throw error;
-  }
-}
-
 export async function runWeb(options: WebOptions): Promise<void> {
   const config = options.config ?? {};
   let activeResult = await loadActiveConfiguration(config);
@@ -560,12 +553,18 @@ export async function runWeb(options: WebOptions): Promise<void> {
   if (!activeResult.ok) {
     const setupOptions = {
       config,
-      ...(options.openBrowser === undefined ? {} : { openBrowser: options.openBrowser }),
+      ...(options.openBrowser === undefined
+        ? {}
+        : { openBrowser: options.openBrowser }),
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     };
     const setup = await runBrowserSetup(setupOptions);
     if (setup.status !== "saved") {
-      throw new Error(setup.status === "failed" ? setup.message : "Configuration setup cancelled.");
+      throw new Error(
+        setup.status === "failed"
+          ? setup.message
+          : "Configuration setup cancelled.",
+      );
     }
     activeResult = await loadActiveConfiguration(config);
     if (!activeResult.ok) throw new Error(activeResult.message);
@@ -578,8 +577,9 @@ export async function runWeb(options: WebOptions): Promise<void> {
     ...(options.config?.env === undefined ? {} : { env: options.config.env }),
   });
   const sessionService = new SessionService(sessionStore);
-  let sessionContext: SessionContext = sessionService.createSession(options.workspaceRoot);
-  const logo = await loadLogo();
+  let sessionContext: SessionContext = sessionService.createSession(
+    options.workspaceRoot,
+  );
   const token = randomBytes(24).toString("hex");
   const host = options.host ?? DEFAULT_HOST;
   const openBrowser = options.openBrowser ?? openBrowserUrl;
@@ -595,8 +595,16 @@ export async function runWeb(options: WebOptions): Promise<void> {
     events.push(complete);
     if (events.length > MAX_EVENTS) events = events.slice(-MAX_EVENTS);
   };
-  const emitState = (): void => emit({ type: "state", state: configurationState(active, options.workspaceRoot, busy) });
-  const emitLog = (message: string, label = "itemd  ", tone: WebTone = "text"): void => emit({ type: "log", label, message, tone });
+  const emitState = (): void =>
+    emit({
+      type: "state",
+      state: configurationState(active, options.workspaceRoot, busy),
+    });
+  const emitLog = (
+    message: string,
+    label = "itemd  ",
+    tone: WebTone = "text",
+  ): void => emit({ type: "log", label, message, tone });
   const loadReplacement = async (): Promise<boolean> => {
     const replacement = await loadActiveConfiguration(config);
     if (!replacement.ok) {
@@ -607,110 +615,264 @@ export async function runWeb(options: WebOptions): Promise<void> {
     emitState();
     return true;
   };
-  const applySelection = async (selection: Partial<Pick<ItemDConfiguration, "model" | "effort">>): Promise<void> => {
+  const applySelection = async (
+    selection: Partial<Pick<ItemDConfiguration, "model" | "effort">>,
+  ): Promise<void> => {
     const storedResult = await readConfiguration(config);
-    if (!storedResult.ok) { emitLog(storedResult.error.message, "configuration error  ", "error"); return; }
-    if (storedResult.configuration === null) {
-      const replacement = createActiveConfiguration({ ...active.configuration, ...selection });
-      if (!replacement.ok) { emitLog(replacement.message, "configuration error  ", "error"); return; }
-      active = replacement.active; emitState(); emitLog("Updated for this session.", "configuration  ", "success"); return;
+    if (!storedResult.ok) {
+      emitLog(storedResult.error.message, "configuration error  ", "error");
+      return;
     }
-    const written = await writeConfiguration({ ...storedResult.configuration, ...selection }, config);
-    if (!written.ok) { emitLog(written.error.message, "configuration error  ", "error"); return; }
-    if (await loadReplacement()) emitLog("Saved and applied.", "configuration  ", "success");
+    if (storedResult.configuration === null) {
+      const replacement = createActiveConfiguration({
+        ...active.configuration,
+        ...selection,
+      });
+      if (!replacement.ok) {
+        emitLog(replacement.message, "configuration error  ", "error");
+        return;
+      }
+      active = replacement.active;
+      emitState();
+      emitLog("Updated for this session.", "configuration  ", "success");
+      return;
+    }
+    const written = await writeConfiguration(
+      { ...storedResult.configuration, ...selection },
+      config,
+    );
+    if (!written.ok) {
+      emitLog(written.error.message, "configuration error  ", "error");
+      return;
+    }
+    if (await loadReplacement())
+      emitLog("Saved and applied.", "configuration  ", "success");
   };
   const runSetup = (theme: "dark" | "light" = "dark"): void => {
-    if (setupRunning) { emitLog("Browser setup is already open.", "configuration  ", "warning"); return; }
+    if (setupRunning) {
+      emitLog("Browser setup is already open.", "configuration  ", "warning");
+      return;
+    }
     setupRunning = true;
-    emitLog("Browser setup opened. Return here after saving.", "configuration  ", "text");
+    emitLog(
+      "Browser setup opened. Return here after saving.",
+      "configuration  ",
+      "text",
+    );
     const setupOptions = {
       config,
       initialConfiguration: active.configuration,
       theme,
-      ...(options.openBrowser === undefined ? {} : { openBrowser: options.openBrowser }),
+      ...(options.openBrowser === undefined
+        ? {}
+        : { openBrowser: options.openBrowser }),
     };
-    void runBrowserSetup(setupOptions).then(async (result) => {
-      setupRunning = false;
-      if (result.status === "saved") { await loadReplacement(); emitLog("Configuration reloaded.", "configuration  ", "success"); }
-      else if (result.status === "cancelled") emitLog("Setup cancelled. Keeping the current configuration.", "configuration  ", "warning");
-      else emitLog(result.message, "configuration error  ", "error");
-    }).catch((error: unknown) => { setupRunning = false; emitLog(getErrorMessage(error), "configuration error  ", "error"); });
+    void runBrowserSetup(setupOptions)
+      .then(async (result) => {
+        setupRunning = false;
+        if (result.status === "saved") {
+          await loadReplacement();
+          emitLog("Configuration reloaded.", "configuration  ", "success");
+        } else if (result.status === "cancelled")
+          emitLog(
+            "Setup cancelled. Keeping the current configuration.",
+            "configuration  ",
+            "warning",
+          );
+        else emitLog(result.message, "configuration error  ", "error");
+      })
+      .catch((error: unknown) => {
+        setupRunning = false;
+        emitLog(getErrorMessage(error), "configuration error  ", "error");
+      });
   };
   const handleCommand = async (line: string): Promise<WebCommandResult> => {
     const words = line.split(/\s+/);
     const command = words[0];
-    if (command === "/help") return { message: `${formatTuiCommandHelp()}\n\nEnter submits tasks. Prefix shell commands with !.` };
-    if (command === "/config") return { message: `provider: ${active.configuration.provider}\nmodel: ${active.configuration.model}\neffort: ${active.configuration.effort}\nweb search: ${active.configuration.webSearch?.enabled ? "enabled" : "disabled"}` };
-    if (command === "/reload") { const ok = await loadReplacement(); return { message: ok ? "Configuration reloaded." : "Reload failed.", tone: ok ? "success" : "error" }; }
+    if (command === "/help")
+      return {
+        message: `${formatTuiCommandHelp()}\n\nEnter submits tasks. Prefix shell commands with !.`,
+      };
+    if (command === "/config")
+      return {
+        message: `provider: ${active.configuration.provider}\nmodel: ${active.configuration.model}\neffort: ${active.configuration.effort}\nweb search: ${active.configuration.webSearch?.enabled ? "enabled" : "disabled"}`,
+      };
+    if (command === "/reload") {
+      const ok = await loadReplacement();
+      return {
+        message: ok ? "Configuration reloaded." : "Reload failed.",
+        tone: ok ? "success" : "error",
+      };
+    }
     if (command === "/setup" || command === "/adapter") {
-      if (words[1] !== undefined && words[1] !== "browser") return { message: "Usage: /setup [browser]", tone: "warning" };
-      const requestedTheme = words[2] === "light" || words[2] === "dark" ? words[2] : "dark";
-      if (words.length > 3 || (words[2] !== undefined && words[2] !== "light" && words[2] !== "dark")) return { message: "Usage: /setup browser [dark|light]", tone: "warning" };
-      runSetup(requestedTheme); return { message: "Browser setup opened.", tone: "text" };
+      if (words[1] !== undefined && words[1] !== "browser")
+        return { message: "Usage: /setup [browser]", tone: "warning" };
+      const requestedTheme =
+        words[2] === "light" || words[2] === "dark" ? words[2] : "dark";
+      if (
+        words.length > 3 ||
+        (words[2] !== undefined && words[2] !== "light" && words[2] !== "dark")
+      )
+        return {
+          message: "Usage: /setup browser [dark|light]",
+          tone: "warning",
+        };
+      runSetup(requestedTheme);
+      return { message: "Browser setup opened.", tone: "text" };
     }
     if (command === "/model") {
-      const provider = PROVIDER_CATALOG.find((candidate) => candidate.id === active.configuration.provider && candidate.enabled) ?? PROVIDER_CATALOG[0];
+      const provider =
+        PROVIDER_CATALOG.find(
+          (candidate) =>
+            candidate.id === active.configuration.provider && candidate.enabled,
+        ) ?? PROVIDER_CATALOG[0];
       const requested = words[1];
-      if (!provider.enabled) return { message: "The active provider is disabled.", tone: "error" };
-      if (requested === undefined) return { message: `Models: ${provider.models.map((candidate) => candidate.id).join(", ")}` };
-      const model = provider.models.find((candidate) => candidate.id === requested);
-      if (model === undefined || words.length > 2) return { message: `Usage: /model <${provider.models.map((candidate) => candidate.id).join("|")}>`, tone: "warning" };
-      await applySelection({ model: model.id }); return { message: `Model set to ${model.id}.`, tone: "success" };
+      if (!provider.enabled)
+        return { message: "The active provider is disabled.", tone: "error" };
+      if (requested === undefined)
+        return {
+          message: `Models: ${provider.models.map((candidate) => candidate.id).join(", ")}`,
+        };
+      const model = provider.models.find(
+        (candidate) => candidate.id === requested,
+      );
+      if (model === undefined || words.length > 2)
+        return {
+          message: `Usage: /model <${provider.models.map((candidate) => candidate.id).join("|")}>`,
+          tone: "warning",
+        };
+      await applySelection({ model: model.id });
+      return { message: `Model set to ${model.id}.`, tone: "success" };
     }
     if (command === "/effort") {
-      const provider = PROVIDER_CATALOG.find((candidate) => candidate.id === active.configuration.provider && candidate.enabled) ?? PROVIDER_CATALOG[0];
+      const provider =
+        PROVIDER_CATALOG.find(
+          (candidate) =>
+            candidate.id === active.configuration.provider && candidate.enabled,
+        ) ?? PROVIDER_CATALOG[0];
       const requested = words[1];
-      if (!provider.enabled) return { message: "The active provider is disabled.", tone: "error" };
-      if (requested === undefined) return { message: `Efforts: ${provider.reasoningEfforts.map((candidate) => candidate.id).join(", ")}` };
-      const effort = provider.reasoningEfforts.find((candidate) => candidate.id === requested);
-      if (effort === undefined || words.length > 2) return { message: `Usage: /effort <${provider.reasoningEfforts.map((candidate) => candidate.id).join("|")}>`, tone: "warning" };
-      await applySelection({ effort: effort.id }); return { message: `Reasoning effort set to ${effort.id}.`, tone: "success" };
+      if (!provider.enabled)
+        return { message: "The active provider is disabled.", tone: "error" };
+      if (requested === undefined)
+        return {
+          message: `Efforts: ${provider.reasoningEfforts.map((candidate) => candidate.id).join(", ")}`,
+        };
+      const effort = provider.reasoningEfforts.find(
+        (candidate) => candidate.id === requested,
+      );
+      if (effort === undefined || words.length > 2)
+        return {
+          message: `Usage: /effort <${provider.reasoningEfforts.map((candidate) => candidate.id).join("|")}>`,
+          tone: "warning",
+        };
+      await applySelection({ effort: effort.id });
+      return {
+        message: `Reasoning effort set to ${effort.id}.`,
+        tone: "success",
+      };
     }
     if (command === "/reasoning") {
-      if (words[1] !== undefined && words[1] !== "on" && words[1] !== "off") return { message: "Usage: /reasoning [on|off]", tone: "warning" };
-      showingReasoning = words[1] === undefined ? !showingReasoning : words[1] === "on";
-      return { message: `Recorded reasoning ${showingReasoning ? "enabled" : "disabled"}.`, tone: "success" };
+      if (words[1] !== undefined && words[1] !== "on" && words[1] !== "off")
+        return { message: "Usage: /reasoning [on|off]", tone: "warning" };
+      showingReasoning =
+        words[1] === undefined ? !showingReasoning : words[1] === "on";
+      return {
+        message: `Recorded reasoning ${showingReasoning ? "enabled" : "disabled"}.`,
+        tone: "success",
+      };
     }
     if (command === "/replays") {
       const result = await listTraces(options.workspaceRoot);
-      return result.ok ? { replays: result.traces, message: result.traces.length === 0 ? "No recorded runs." : "Recorded runs:" } : { message: result.error.message, tone: "error" };
+      return result.ok
+        ? {
+            replays: result.traces,
+            message:
+              result.traces.length === 0
+                ? "No recorded runs."
+                : "Recorded runs:",
+          }
+        : { message: result.error.message, tone: "error" };
     }
     if (command === "/replay") {
-      if (words.length !== 2 || words[1] === undefined) return { message: "Usage: /replay <trace-id>", tone: "warning" };
+      if (words.length !== 2 || words[1] === undefined)
+        return { message: "Usage: /replay <trace-id>", tone: "warning" };
       const replay = await replayTrace(options.workspaceRoot, words[1]);
-      return { replay, message: replay.ok ? `Replay ${replay.traceId}` : replay.error.message, tone: replay.ok ? "text" : "error" };
+      return {
+        replay,
+        message: replay.ok ? `Replay ${replay.traceId}` : replay.error.message,
+        tone: replay.ok ? "text" : "error",
+      };
     }
     if (command === "/sessions") {
-      const sessions = sessionService.listSessions(10).filter((session) => session.workspaceRoot === options.workspaceRoot);
-      return { sessions, message: sessions.length === 0 ? "No saved sessions." : "Select a session:" };
+      const sessions = sessionService
+        .listSessions(10)
+        .filter((session) => session.workspaceRoot === options.workspaceRoot);
+      return {
+        sessions,
+        message:
+          sessions.length === 0 ? "No saved sessions." : "Select a session:",
+      };
     }
     if (command === "/resume") {
-      if (words.length !== 2 || words[1] === undefined) return { message: "Usage: /resume <session-id>", tone: "warning" };
-      const resumed = sessionService.resumeSession(words[1], options.workspaceRoot);
+      if (words.length !== 2 || words[1] === undefined)
+        return { message: "Usage: /resume <session-id>", tone: "warning" };
+      const resumed = sessionService.resumeSession(
+        words[1],
+        options.workspaceRoot,
+      );
       if (!resumed.ok) return { message: resumed.error.message, tone: "error" };
       sessionContext = resumed.context;
-      return { session: resumed.context.session, messages: resumed.context.messages, message: "Session resumed." };
+      return {
+        session: resumed.context.session,
+        messages: resumed.context.messages,
+        message: "Session resumed.",
+      };
     }
     if (command === "/new") {
       sessionContext = sessionService.createSession(options.workspaceRoot);
-      return { message: "New session started. Active configuration retained.", tone: "success" };
+      return {
+        message: "New session started. Active configuration retained.",
+        tone: "success",
+      };
     }
-    if (command === "/clear" || command === "/theme") return { message: `${command.slice(1)} is handled by the browser interface.` };
-    return { message: `Unknown command: ${command ?? line}. Type /help for available commands.`, tone: "warning" };
+    if (command === "/clear" || command === "/theme")
+      return {
+        message: `${command.slice(1)} is handled by the browser interface.`,
+      };
+    return {
+      message: `Unknown command: ${command ?? line}. Type /help for available commands.`,
+      tone: "warning",
+    };
   };
   const startTask = (task: string): void => {
-    if (busy) { emitLog("itemd is already running a task.", "busy  ", "warning"); return; }
-    sessionContext = sessionService.appendMessage(sessionContext.session.id, { role: "user", content: task });
-    busy = true; activeController = new AbortController(); emit({ type: "status", status: "running" }); emitState();
+    if (busy) {
+      emitLog("itemd is already running a task.", "busy  ", "warning");
+      return;
+    }
+    sessionContext = sessionService.appendMessage(sessionContext.session.id, {
+      role: "user",
+      content: task,
+    });
+    busy = true;
+    activeController = new AbortController();
+    emit({ type: "status", status: "running" });
+    emitState();
     const controller = activeController;
     void runAgent(task, active.adapter, options.workspaceRoot, {
       signal: controller.signal,
-      tools: active.webSearchProvider === undefined ? {} : { webSearchProvider: active.webSearchProvider },
+      tools:
+        active.webSearchProvider === undefined
+          ? {}
+          : { webSearchProvider: active.webSearchProvider },
       initialMessages: sessionContext.messages,
       onMessage: (message: ModelMessage): void => {
-        sessionContext = sessionService.appendMessage(sessionContext.session.id, message);
+        sessionContext = sessionService.appendMessage(
+          sessionContext.session.id,
+          message,
+        );
       },
-      onEvent: async (event: AgentRunEvent) => emit({ type: "reasoning", step: event.step, text: event.text }),
+      onEvent: async (event: AgentRunEvent) =>
+        emit({ type: "reasoning", step: event.step, text: event.text }),
       onRuntimeEvent: (event: AgentRuntimeEvent): void => {
         if (event.type === "activity") {
           emit({
@@ -735,22 +897,50 @@ export async function runWeb(options: WebOptions): Promise<void> {
           });
         }
       },
-    }).then((result) => emit({ type: "run", result })).catch((error: unknown) => emitLog(getErrorMessage(error), "itemd error  ", "error")).finally(() => {
-      if (activeController === controller) activeController = null;
-      busy = false; emit({ type: "status", status: "ready" }); emitState();
-    });
+    })
+      .then((result) => emit({ type: "run", result }))
+      .catch((error: unknown) =>
+        emitLog(getErrorMessage(error), "itemd error  ", "error"),
+      )
+      .finally(() => {
+        if (activeController === controller) activeController = null;
+        busy = false;
+        emit({ type: "status", status: "ready" });
+        emitState();
+      });
   };
   const startShell = (line: string): void => {
-    if (busy) { emitLog("itemd is already busy.", "busy  ", "warning"); return; }
-    busy = true; activeController = new AbortController(); emit({ type: "status", status: "running" }); emitState();
+    if (busy) {
+      emitLog("itemd is already busy.", "busy  ", "warning");
+      return;
+    }
+    busy = true;
+    activeController = new AbortController();
+    emit({ type: "status", status: "running" });
+    emitState();
     const controller = activeController;
-    void executePrefixedShellCommand(line.slice(1).trim(), options.workspaceRoot, controller.signal).then((result) => emitLog(formatShellResult(line.slice(1).trim(), result), "shell\n", result.ok ? "text" : "error")).catch((error: unknown) => emitLog(getErrorMessage(error), "shell error  ", "error")).finally(() => {
-      if (activeController === controller) activeController = null;
-      busy = false; emit({ type: "status", status: "ready" }); emitState();
-    });
+    void executePrefixedShellCommand(
+      line.slice(1).trim(),
+      options.workspaceRoot,
+      controller.signal,
+    )
+      .then((result) =>
+        emitLog(
+          formatShellResult(line.slice(1).trim(), result),
+          "shell\n",
+          result.ok ? "text" : "error",
+        ),
+      )
+      .catch((error: unknown) =>
+        emitLog(getErrorMessage(error), "shell error  ", "error"),
+      )
+      .finally(() => {
+        if (activeController === controller) activeController = null;
+        busy = false;
+        emit({ type: "status", status: "ready" });
+        emitState();
+      });
   };
-  const logoBytes = logo;
-
   return new Promise((resolve, reject) => {
     let server: ReturnType<typeof createServer>;
     let settled = false;
@@ -759,53 +949,113 @@ export async function runWeb(options: WebOptions): Promise<void> {
       settled = true;
       activeController?.abort();
       sessionService.close();
-      if (server.listening) { server.close(); server.closeAllConnections(); }
+      if (server.listening) {
+        server.close();
+        server.closeAllConnections();
+      }
       resolve();
     };
-    const authorize = (requestUrl: URL): boolean => requestUrl.searchParams.get("token") === token;
+    const authorize = (requestUrl: URL): boolean =>
+      requestUrl.searchParams.get("token") === token;
     server = createServer(async (request, response) => {
       const requestUrl = new URL(request.url ?? "/", `http://${host}`);
-      if (!authorize(requestUrl)) { sendJson(response, 403, { error: "Invalid web session" }); return; }
-      if (requestUrl.pathname === "/" && request.method === "GET") { sendHtml(response, 200, pageHtml(token)); return; }
-      if (requestUrl.pathname === "/assets/logo.png" && request.method === "GET") {
-        if (logoBytes === null) { sendJson(response, 404, { error: "Logo unavailable" }); return; }
-        response.writeHead(200, { "content-type": "image/png", "cache-control": "public, max-age=3600" }); response.end(logoBytes); return;
+      if (!authorize(requestUrl)) {
+        sendJson(response, 403, { error: "Invalid web session" });
+        return;
+      }
+      if (requestUrl.pathname === "/" && request.method === "GET") {
+        sendHtml(response, 200, pageHtml(token));
+        return;
       }
       try {
         if (requestUrl.pathname === "/api/state" && request.method === "GET") {
-          const provider = PROVIDER_CATALOG.find((candidate) => candidate.id === active.configuration.provider && candidate.enabled) ?? PROVIDER_CATALOG[0];
-          sendJson(response, 200, { state: configurationState(active, options.workspaceRoot, busy), models: provider.enabled ? provider.models : [], efforts: provider.enabled ? provider.reasoningEfforts : [] }); return;
+          const provider =
+            PROVIDER_CATALOG.find(
+              (candidate) =>
+                candidate.id === active.configuration.provider &&
+                candidate.enabled,
+            ) ?? PROVIDER_CATALOG[0];
+          sendJson(response, 200, {
+            state: configurationState(active, options.workspaceRoot, busy),
+            models: provider.enabled ? provider.models : [],
+            efforts: provider.enabled ? provider.reasoningEfforts : [],
+          });
+          return;
         }
         if (requestUrl.pathname === "/api/events" && request.method === "GET") {
-          const since = Number(requestUrl.searchParams.get("since") ?? "0"); sendJson(response, 200, { events: events.filter((event) => event.seq > since) }); return;
+          const since = Number(requestUrl.searchParams.get("since") ?? "0");
+          sendJson(response, 200, {
+            events: events.filter((event) => event.seq > since),
+          });
+          return;
         }
         if (requestUrl.pathname === "/api/stop" && request.method === "POST") {
-          if (activeController !== null) { emit({ type: "status", status: "stopping" }); activeController.abort(); }
-          sendJson(response, 200, { ok: true }); return;
+          if (activeController !== null) {
+            emit({ type: "status", status: "stopping" });
+            activeController.abort();
+          }
+          sendJson(response, 200, { ok: true });
+          return;
         }
         if (requestUrl.pathname === "/api/input" && request.method === "POST") {
           const value = JSON.parse(await readBody(request)) as unknown;
-          const line = isRecord(value) && typeof value.line === "string" ? value.line.trim() : "";
-          if (line.length === 0) { sendJson(response, 400, { message: "Input cannot be empty." }); return; }
-          if (line === "$editor") { sendJson(response, 200, { message: "$editor is available only in the terminal composer. Use the terminal interface to open your local editor.", tone: "warning" }); return; }
-          if (line.startsWith("!")) { startShell(line); sendJson(response, 202, { accepted: true }); return; }
-          if (!line.startsWith("/")) { startTask(line); sendJson(response, 202, { accepted: true }); return; }
-          const command = await handleCommand(line); sendJson(response, 200, command); return;
+          const line =
+            isRecord(value) && typeof value.line === "string"
+              ? value.line.trim()
+              : "";
+          if (line.length === 0) {
+            sendJson(response, 400, { message: "Input cannot be empty." });
+            return;
+          }
+          if (line === "$editor") {
+            sendJson(response, 200, {
+              message:
+                "$editor is available only in the terminal composer. Use the terminal interface to open your local editor.",
+              tone: "warning",
+            });
+            return;
+          }
+          if (line.startsWith("!")) {
+            startShell(line);
+            sendJson(response, 202, { accepted: true });
+            return;
+          }
+          if (!line.startsWith("/")) {
+            startTask(line);
+            sendJson(response, 202, { accepted: true });
+            return;
+          }
+          const command = await handleCommand(line);
+          sendJson(response, 200, command);
+          return;
         }
         sendJson(response, 404, { error: "Not found" });
-      } catch (error: unknown) { sendJson(response, 400, { message: getErrorMessage(error) }); }
+      } catch (error: unknown) {
+        sendJson(response, 400, { message: getErrorMessage(error) });
+      }
     });
     server.once("error", reject);
     if (options.signal !== undefined) {
-      if (options.signal.aborted) { close(); return; }
+      if (options.signal.aborted) {
+        close();
+        return;
+      }
       options.signal.addEventListener("abort", close, { once: true });
     }
     server.listen(options.port ?? 0, host, () => {
       const address = server.address();
-      const port = typeof address === "object" && address !== null ? address.port : undefined;
-      if (port === undefined) { reject(new Error("Unable to determine web UI address.")); return; }
+      const port =
+        typeof address === "object" && address !== null
+          ? address.port
+          : undefined;
+      if (port === undefined) {
+        reject(new Error("Unable to determine web UI address."));
+        return;
+      }
       const url = `http://${host}:${port}/?token=${encodeURIComponent(token)}`;
-      void openBrowser(url).catch(() => process.stdout.write(`itemd web UI: ${url}\n`));
+      void openBrowser(url).catch(() =>
+        process.stdout.write(`itemd web UI: ${url}\n`),
+      );
     });
   });
 }
